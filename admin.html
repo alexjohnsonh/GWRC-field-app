@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en-NZ">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Fish Passage Admin</title>
+<style>
+/* Layout: single column admin console; same palette as the field app */
+:root{--bg:#EEF2EF;--surface:#FFFFFF;--ink:#13201B;--muted:#56665E;--line:#CBD6D0;--accent:#0F6B5C;--accent-ink:#FFFFFF;--bad:#B3261E;--head:#0F4F45;--head-ink:#F2F7F5;
+  --f-ui:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;--f-num:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0E1513;--surface:#17211E;--ink:#E6EEEA;--muted:#9AAAA3;--line:#2C3A35;--accent:#4FC1A8;--accent-ink:#06201A;--bad:#FF8A80;--head:#0A2A25;--head-ink:#E6EEEA;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0E1513;--surface:#17211E;--ink:#E6EEEA;--muted:#9AAAA3;--line:#2C3A35;--accent:#4FC1A8;--accent-ink:#06201A;--bad:#FF8A80;--head:#0A2A25;--head-ink:#E6EEEA;color-scheme:dark}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 var(--f-ui)}
+[hidden]{display:none!important}
+header{background:var(--head);color:var(--head-ink);padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 14px}
+header h1{margin:0;font-size:18px}header p{margin:2px 0 0;font-size:13px;opacity:.8}
+main{max-width:720px;margin:0 auto;padding-inline:16px;padding-block:16px 40px;display:grid;gap:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h2{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--accent)}
+label{display:block;font-weight:600;margin-bottom:6px}
+input{width:100%;font:16px var(--f-ui);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:11px;min-height:46px}
+input:focus,button:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.row{display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+@media (max-width:520px){.row{grid-template-columns:1fr}}
+.btn{appearance:none;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;font:600 14px var(--f-ui);min-height:46px;padding:8px 14px;cursor:pointer}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.small{min-height:36px;padding:4px 10px;font-size:13px}.btn.danger{color:var(--bad);border-color:var(--bad)}
+.tablewrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.muted{color:var(--muted);font-size:13px}.err{color:var(--bad);font-weight:600}.ok{color:var(--accent);font-weight:600}
+code,.mono{font-family:var(--f-num);font-size:13px;overflow-wrap:anywhere}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin-top:10px;background:var(--bg);border-radius:8px;padding:10px}
+details summary{cursor:pointer;font-weight:600}
+</style>
+</head>
+<body>
+<header><h1>Fish Passage Admin</h1><p>Transmission Gully inspections · manage who can sign in</p></header>
+<main>
+  <p class="err" id="cfgErr" hidden>firebase-config.js has not been filled in yet.</p>
+
+  <section class="card" id="signCard">
+    <h2>Admin sign in</h2>
+    <div class="row">
+      <div><label for="aName">Name</label><input id="aName" type="text" autocapitalize="words"></div>
+      <div><label for="aPin">PIN</label><input id="aPin" type="password" inputmode="numeric" maxlength="8"></div>
+      <button class="btn primary" id="aBtn" type="button">Sign in</button>
+    </div>
+    <p class="err" id="aErr"></p>
+  </section>
+
+  <section class="card" id="addCard" hidden>
+    <h2>Add a person or change a PIN</h2>
+    <form class="row" id="addForm" novalidate>
+      <div><label for="name">Name</label><input id="name" type="text" autocapitalize="words" placeholder="e.g. Tim Olley"></div>
+      <div><label for="pin">PIN (4 to 8 digits)</label><input id="pin" type="text" inputmode="numeric" maxlength="8"></div>
+      <button class="btn primary" type="submit">Save</button>
+    </form>
+    <label style="margin-top:10px;font-weight:400"><input id="isAdmin" type="checkbox" style="width:auto;min-height:0"> Can manage people (admin)</label>
+    <p class="muted">Adding a name that already exists with a new PIN replaces their old PIN. They then sign in again on their phone.</p>
+    <p id="addMsg"></p>
+  </section>
+
+  <section class="card" id="usersCard" hidden>
+    <h2>People who can sign in</h2>
+    <div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Added</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
+    <p class="muted">Removing someone stops their access straight away. Inspections they uploaded stay in the cloud.</p>
+    <button class="btn" id="signOut" type="button">Sign out</button>
+  </section>
+
+  <section class="card">
+    <h2>First-time setup</h2>
+    <details>
+      <summary>Add the first admin by hand</summary>
+      <p class="muted">Only needed once, before anyone can sign in here. Type the name and PIN, then copy the values below into the Firebase console.</p>
+      <div class="row">
+        <div><label for="sName">Name</label><input id="sName" type="text" autocapitalize="words"></div>
+        <div><label for="sPin">PIN</label><input id="sPin" type="text" inputmode="numeric" maxlength="8"></div>
+      </div>
+      <div class="kv" id="setupOut"><span class="muted">Email</span><span class="mono" id="sEmail">–</span><span class="muted">Password</span><span class="mono" id="sPass">–</span></div>
+      <ol class="muted">
+        <li>Firebase console › Authentication › Users › Add user: paste the email and password above.</li>
+        <li>Firestore Database › Start collection <code>staff</code> › Document ID = the email above › fields <code>name</code> (string) = the name, <code>role</code> (string) = <code>admin</code>.</li>
+        <li>Come back to this page and sign in with that name and PIN.</li>
+      </ol>
+    </details>
+  </section>
+</main>
+<script src="firebase-app-compat.js"></script>
+<script src="firebase-auth-compat.js"></script>
+<script src="firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// must match app.js
+const slugName=n=>String(n||'').trim().toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+const loginEmail=async(name,pin)=>{ // the PIN is hashed so it never shows in the Firebase console
+  const s=slugName(name),h=await crypto.subtle.digest('SHA-256',new TextEncoder().encode('tg-fpi:'+s+':'+pin));
+  return `${s}.${[...new Uint8Array(h)].slice(0,6).map(b=>b.toString(16).padStart(2,'0')).join('')}@staff.tg-fish-passage.example.com`;
+};
+const loginPass=pin=>`TG-fpi-${pin}`;
+const pinOk=p=>/^\d{4,8}$/.test(p);
+
+['sName','sPin'].forEach(id=>$(id).addEventListener('input',async()=>{
+  const n=$('sName').value.trim(),p=$('sPin').value.trim(),ok=n&&pinOk(p);
+  $('sEmail').textContent=ok?await loginEmail(n,p):'–';$('sPass').textContent=ok?loginPass(p):'–';
+}));
+
+const ready=window.FIREBASE_CONFIG&&FIREBASE_CONFIG.apiKey&&!/PASTE/.test(FIREBASE_CONFIG.apiKey);
+if(!ready){$('cfgErr').hidden=false;$('aBtn').disabled=true}
+else{
+  firebase.initializeApp(FIREBASE_CONFIG);
+  const auth=firebase.auth(),db=firebase.firestore();
+  const helper=firebase.initializeApp(FIREBASE_CONFIG,'helper').auth(); // creates logins without signing the admin out
+  let me=null;
+  auth.onAuthStateChanged(async u=>{
+    me=null;
+    if(u){try{const d=await db.collection('staff').doc(u.email).get();if(d.exists&&d.data().role==='admin')me={email:u.email,...d.data()}}catch(e){}}
+    if(u&&!me){$('aErr').textContent='That sign-in is not an admin.';await auth.signOut();return}
+    $('signCard').hidden=!!me;$('addCard').hidden=$('usersCard').hidden=!me;
+    if(me)refresh();
+  });
+  $('aBtn').onclick=async()=>{
+    const n=$('aName').value.trim(),p=$('aPin').value.trim();$('aErr').textContent='';
+    if(!n||!pinOk(p)){$('aErr').textContent='Enter your name and 4 to 8 digit PIN.';return}
+    try{await auth.signInWithEmailAndPassword(await loginEmail(n,p),loginPass(p))}
+    catch(e){$('aErr').textContent=/too-many/.test(e.code)?'Too many attempts. Wait a few minutes.':'Name or PIN not recognised.'}
+  };
+  $('signOut').onclick=()=>auth.signOut();
+  async function refresh(){
+    const s=await db.collection('staff').get();
+    const rows=s.docs.map(d=>({email:d.id,...d.data()})).sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    $('users').innerHTML=rows.length?rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.role==='admin'?'Admin':'Inspector'}</td>
+      <td>${r.added?new Date(r.added).toLocaleDateString('en-NZ'):'–'}</td>
+      <td>${r.email===me.email?'<span class="muted">you</span>':`<button class="btn small" data-del="${esc(r.email)}">Remove</button>`}</td></tr>`).join('')
+      :'<tr><td colspan="4" class="muted">No one yet.</td></tr>';
+  }
+  const msg=(t,cls)=>{$('addMsg').className=cls;$('addMsg').textContent=t};
+  $('addForm').addEventListener('submit',async e=>{
+    e.preventDefault();const n=$('name').value.trim(),p=$('pin').value.trim();
+    if(!n)return msg('Enter a name.','err');if(!pinOk(p))return msg('PIN must be 4 to 8 digits.','err');
+    const email=await loginEmail(n,p);msg('Saving…','muted');
+    try{
+      try{await helper.createUserWithEmailAndPassword(email,loginPass(p));await helper.signOut()}
+      catch(err){if(err.code!=='auth/email-already-in-use')throw err}
+      // one active PIN per person: drop their old entry if the name already exists
+      const old=await db.collection('staff').where('slug','==',slugName(n)).get();
+      const batch=db.batch();old.docs.forEach(d=>{if(d.id!==email)batch.delete(d.ref)});
+      batch.set(db.collection('staff').doc(email),{name:n,slug:slugName(n),role:$('isAdmin').checked?'admin':'inspector',added:new Date().toISOString(),addedBy:me.name||''});
+      await batch.commit();
+      $('name').value='';$('pin').value='';$('isAdmin').checked=false;
+      msg(old.docs.some(d=>d.id!==email)?`PIN changed for ${n}.`:`${n} can now sign in.`,'ok');refresh();
+    }catch(err){msg('Could not save: '+(err.code||err.message),'err')}
+  });
+  $('users').addEventListener('click',async e=>{
+    const b=e.target.closest('button[data-del]');if(!b)return;
+    if(!b.dataset.armed){b.dataset.armed='1';b.textContent='Confirm remove';b.classList.add('danger');
+      setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='Remove';b.classList.remove('danger')}},3000);return}
+    try{await db.collection('staff').doc(b.dataset.del).delete();refresh()}catch(err){msg('Could not remove: '+(err.code||err.message),'err')}
+  });
+}
+</script>
+</body>
+</html>
