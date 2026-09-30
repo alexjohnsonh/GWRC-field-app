@@ -1,7 +1,8 @@
 const YN=['Yes','No'], PF=['Pass','Fail'], GFP=['Good','Fair','Poor'], LC=['Laminar','Complex'];
 const SECTIONS=[
  {t:'Asset identification',f:[
-  {k:'culvert_no',l:'Culvert No.',type:'text',req:1}]},
+  {k:'culvert_no',l:'Culvert No.',type:'text',req:1},
+  {k:'location',l:'GPS location',hint:'latitude, longitude',type:'gps',csv:'GPS location (lat, long)'}]},
  {t:'Inspection details',f:[
   {k:'inspector',l:'Name of inspector',type:'text',req:1,remember:1},
   {k:'date',l:'Inspection date',type:'date',req:1,half:1},
@@ -58,7 +59,7 @@ let records=load(KEY.recs,[]), prefs=load(KEY.prefs,{}), cur=load(KEY.draft,null
 let auth=load('fpi.auth.v1',null); // {name,email,role} remembered on this phone after first sign-in
 const pad=n=>String(n).padStart(2,'0');
 function nowParts(){const d=new Date();return{date:`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,time:`${pad(d.getHours())}:${pad(d.getMinutes())}`}}
-function fresh(){const n=nowParts();return{id:null,v:{inspector:prefs.inspector||(auth&&auth.name)||'',date:n.date,time:n.time}}}
+function fresh(){if(typeof gpsAutoDone!=='undefined')gpsAutoDone=false;const n=nowParts();return{id:null,v:{inspector:prefs.inspector||(auth&&auth.name)||'',date:n.date,time:n.time}}}
 if(!cur)cur=fresh();
 
 /* ---------- build form ---------- */
@@ -71,6 +72,10 @@ function fieldHTML(f){
     return `<div class="field" data-k="${f.k}"><span class="q" id="q-${f.k}">${esc(f.l)}${star}${hint}</span>
       <div class="seg" role="radiogroup" aria-labelledby="q-${f.k}">${f.opts.map(o=>`<button type="button" role="radio" aria-checked="false" data-k="${f.k}" data-v="${o}">${o}</button>`).join('')}</div></div>`;
   }
+  if(f.type==='gps')return `<div class="field" data-k="${f.k}"><label for="f-${f.k}">${esc(f.l)}${hint}</label>
+      <div class="gps"><input id="f-${f.k}" data-k="${f.k}" type="text" inputmode="decimal" autocomplete="off" placeholder="-41.10000, 174.90000">
+      <button class="btn" type="button" id="gpsBtn">Use my location</button></div>
+      <p class="fieldnote" id="gpsNote">GPS works without cell coverage. Stand at the culvert.</p></div>`;
   if(f.type==='photo')return `<div class="field" data-k="${f.k}"><span class="q">${f.n}. ${esc(f.l)}${star}</span>
       <div class="shot" id="s-${f.k}"><span>No photo yet</span></div>
       <label class="btn shotbtn" for="f-${f.k}" id="b-${f.k}">Take photo</label>
@@ -140,7 +145,7 @@ form.addEventListener('click',e=>{
   const k=b.dataset.k,v=b.dataset.v;
   cur.v[k]=(cur.v[k]===v)?'':v; setSel(k,cur.v[k]); changed(k);
 });
-form.addEventListener('input',e=>{const k=e.target.dataset.k;if(!k||e.target.type==='file')return;cur.v[k]=e.target.value;changed(k)});
+form.addEventListener('input',e=>{const k=e.target.dataset.k;if(!k||e.target.type==='file')return;if(k==='location')cur.v.location_acc='';cur.v[k]=e.target.value;changed(k)});
 
 /* ---------- photos (IndexedDB) ---------- */
 let dbp=null;
@@ -177,6 +182,29 @@ function photoRefs(){const s=new Set(),add=v=>PHOTOS.forEach(f=>v[f.k]&&s.add(v[
 async function gc(){try{const refs=photoRefs();for(const k of await photoKeys())if(!refs.has(k)){await delPhoto(k);if(urls[k]){URL.revokeObjectURL(urls[k]);delete urls[k]}}}catch(e){}}
 const safe=s=>String(s||'').trim().replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'')||'culvert';
 function photoName(r,f){return `${safe(r.v.culvert_no)}_${(r.v.date||'').replace(/-/g,'')}-${(r.v.time||'').replace(':','')}_${f.n}-${safe(f.l)}.jpg`}
+
+/* ---------- GPS ---------- */
+function parseLoc(s){const m=String(s||'').match(/(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)/);if(!m)return null;
+  const lat=+m[1],lng=+m[2];return Math.abs(lat)<=90&&Math.abs(lng)<=180?{lat,lng}:null}
+let gpsBusy=false;
+function getGPS(auto){
+  if(gpsBusy)return;const note=$('gpsNote');
+  if(!navigator.geolocation){if(!auto)note.textContent='This browser can\'t read GPS. Type the coordinates instead.';return}
+  gpsBusy=true;$('gpsBtn').disabled=true;note.textContent='Finding your location…';
+  navigator.geolocation.getCurrentPosition(p=>{
+    gpsBusy=false;$('gpsBtn').disabled=false;
+    const v=`${p.coords.latitude.toFixed(6)}, ${p.coords.longitude.toFixed(6)}`,acc=Math.round(p.coords.accuracy);
+    cur.v.location=v;cur.v.location_acc=String(acc);$('f-location').value=v;changed('location');
+    note.textContent=`Location recorded (accurate to about ${acc} m).`+(acc>50?' Try again in the open for a better fix.':'');
+  },e=>{
+    gpsBusy=false;$('gpsBtn').disabled=false;
+    note.textContent=e.code===1?'Location permission is off. Allow it for this site in the phone settings, or type the coordinates.':'Couldn\'t get a GPS fix. Try again in the open, or type the coordinates.';
+  },{enableHighAccuracy:true,timeout:25000,maximumAge:60000});
+}
+form.addEventListener('click',e=>{if(e.target.id==='gpsBtn')getGPS(false)});
+// first time a Culvert No. is typed on a new inspection, grab the location automatically
+var gpsAutoDone=false; // var: fresh() can run before this line
+form.addEventListener('change',e=>{if(e.target.id==='f-culvert_no'&&!gpsAutoDone&&!cur.id&&!(cur.v.location||'').trim()){gpsAutoDone=true;getGPS(true)}});
 
 /* ---------- save / clear ---------- */
 function issues(v){
@@ -242,8 +270,8 @@ function csv(){
   // Field data only; merge with the culvert spreadsheet at the office on the Culvert No. column
   const col=f=>[f.type==='photo'?`Photo ${f.n}: ${f.l}`:(f.csv||f.l)+(f.unit?` (${f.unit})`:''),r=>f.type==='photo'?(r.v[f.k]?photoName(r,f):''):f.k==='date'?fmtDate(r.v.date):r.v[f.k]];
   const cols=[col(FIELDS[0]),
-    ...FIELDS.slice(1).map(col),
-    ['Issue count',r=>issues(r.v).length],['Record ID',r=>r.id],['Saved',r=>r.saved],['Last updated',r=>r.updated]];
+    ...FIELDS.slice(1).flatMap(f=>f.k==='location'?[['Latitude',r=>{const L=parseLoc(r.v.location);return L?L.lat:''}],['Longitude',r=>{const L=parseLoc(r.v.location);return L?L.lng:''}]]:[col(f)]),
+    ['GPS accuracy (m)',r=>r.v.location_acc||''],['Issue count',r=>issues(r.v).length],['Record ID',r=>r.id],['Saved',r=>r.saved],['Last updated',r=>r.updated]];
   const q=s=>{s=String(s??'');return /[",\n\r]/.test(s)?`"${s.replace(/"/g,'""')}"`:s};
   return '﻿'+[cols.map(c=>q(c[0])).join(','),...records.map(r=>cols.map(c=>q(c[1](r))).join(','))].join('\r\n');
 }
@@ -346,6 +374,25 @@ $('repCulverts').addEventListener('change',e=>{const c=e.target.dataset.c;if(c==
 $('repAll').onclick=()=>{REP.off.clear();renderReport()};
 $('repNone').onclick=()=>{$('repCulverts').querySelectorAll('input[data-c]').forEach(i=>REP.off.add(i.dataset.c));renderReport()};
 
+// Location map for the PDF: OpenStreetMap tiles (needs internet when the report is made)
+async function mapImage(lat,lng,wPx,hPx,z){
+  const n=2**z,wx=(lng+180)/360*n*256,rad=lat*Math.PI/180,wy=(1-Math.log(Math.tan(rad)+1/Math.cos(rad))/Math.PI)/2*n*256;
+  const x0=wx-wPx/2,y0=wy-hPx/2,c=document.createElement('canvas');c.width=wPx;c.height=hPx;const g=c.getContext('2d');
+  g.fillStyle='#e8ece9';g.fillRect(0,0,wPx,hPx);
+  const jobs=[];
+  for(let tx=Math.floor(x0/256);tx<=Math.floor((x0+wPx)/256);tx++)for(let ty=Math.floor(y0/256);ty<=Math.floor((y0+hPx)/256);ty++){
+    jobs.push(new Promise((res,rej)=>{const im=new Image();im.crossOrigin='anonymous';
+      const t=setTimeout(()=>rej(new Error('timeout')),15000);
+      im.onload=()=>{clearTimeout(t);g.drawImage(im,tx*256-x0,ty*256-y0);res()};im.onerror=()=>{clearTimeout(t);rej(new Error('tile'))};
+      im.src=`https://tile.openstreetmap.org/${z}/${((tx%n)+n)%n}/${ty}.png`}));
+  }
+  await Promise.all(jobs);
+  const cx=wPx/2,cy=hPx/2;g.beginPath();g.arc(cx,cy,30,0,2*Math.PI);g.fillStyle='rgba(179,38,30,.25)';g.fill();
+  g.beginPath();g.arc(cx,cy,14,0,2*Math.PI);g.fillStyle='#d11f1f';g.fill();g.lineWidth=4;g.strokeStyle='#fff';g.stroke();
+  g.font='600 15px Arial,sans-serif';const a='© OpenStreetMap contributors',tw=g.measureText(a).width;
+  g.fillStyle='rgba(255,255,255,.85)';g.fillRect(wPx-tw-12,hPx-24,tw+12,24);g.fillStyle='#333';g.fillText(a,wPx-tw-6,hPx-7);
+  return c.toDataURL('image/jpeg',0.85);
+}
 async function pdfImage(pid){ // smaller copy for the PDF so the file stays a sensible size
   const b=await getPhoto(pid);if(!b)return null;
   const img=await createImageBitmap(b),sc=Math.min(1,1200/Math.max(img.width,img.height)),c=document.createElement('canvas');
@@ -425,7 +472,7 @@ async function buildReport(){
     kvTable('Asset Identification',[
       ['RAMM Reference / Culvert No.:',r.v.culvert_no],
       ['Road / Catchment / Stream Name:',''],
-      ['Latitude/Longitude Coordinates:',''],
+      ['Latitude/Longitude Coordinates:',(()=>{const L=parseLoc(r.v.location);return L?`${L.lat.toFixed(6)}, ${L.lng.toFixed(6)}`+(r.v.location_acc?`  (GPS ±${r.v.location_acc} m)`:''):''})()],
       ['Culvert Type:',''],['Culvert diameter:',''],['Culvert length:','']],CW*0.5);
     kvTable('Inspection Details',[
       ['Name of inspector:',r.v.inspector],['Organisation:','ATS Environmental'],
@@ -465,9 +512,17 @@ async function buildReport(){
     font(FS);col(INK);const note=lines(v(r,'final_comments')||'(Record any other relevant comments, environmental observations, or coordination notes.)',CW);
     need(note.length*LH+4);if(!v(r,'final_comments'))col(MUT);doc.text(note,M,y+3);y+=note.length*LH+6;
     // photographs, 2x2
-    // photographs 2x2: on the same page if they fit at a useful size, otherwise a new page
+    // location map + photographs on their own page
+    newPage();const L=parseLoc(r.v.location);
+    heading('Location',0);const mh=72;
+    draw(INK);doc.setLineWidth(0.25);
+    if(L){
+      const img=await mapImage(L.lat,L.lng,1160,480,16).catch(()=>null);
+      if(img){doc.addImage(img,'JPEG',M,y,CW,mh,undefined,'FAST');doc.rect(M,y,CW,mh,'S')}
+      else{fill([236,240,237]);doc.rect(M,y,CW,mh,'FD');col(MUT);font(9);doc.text('Map could not be loaded (no internet when the report was made).',M+CW/2,y+mh/2,{align:'center'})}
+      y+=mh+4;col(INK);font(FS);doc.text(`${r.v.culvert_no}: ${L.lat.toFixed(6)}, ${L.lng.toFixed(6)}`+(r.v.location_acc?`  (GPS accuracy about ${r.v.location_acc} m)`:''),M,y+1);y+=7;
+    }else{fill([236,240,237]);doc.rect(M,y,CW,16,'FD');col(MUT);font(9);doc.text('No GPS location was recorded for this inspection.',M+CW/2,y+9,{align:'center'});y+=22}
     const gap=6;let pw=(CW-gap)/2,ph=Math.min(pw*0.75,(BOT-y-26)/2);
-    if(ph<48){newPage();ph=Math.min(pw*0.75,(BOT-y-26)/2)}
     heading('Photographs',0);pw=Math.min(pw,ph/0.75);
     for(let i=0;i<PHOTOS.length;i++){
       const f=PHOTOS[i],x=M+(CW-2*pw-gap)/2+(i%2)*(pw+gap),yy=y+Math.floor(i/2)*(ph+11);
@@ -614,6 +669,7 @@ $('loginForm').addEventListener('submit',async e=>{
     err.textContent=c==='not-staff'?'This name isn\'t set up yet. Ask the office to add you.'
       :/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c)?'Name or PIN not recognised.'
       :c==='auth/too-many-requests'?'Too many attempts. Wait a few minutes and try again.'
+      :c==='auth/operation-not-allowed'?'Sign-in is not switched on in Firebase yet. Ask the office.'
       :'Can\'t reach the server. Sign in when you have coverage, or use offline for now.';
     err.hidden=false;
   }finally{btn.disabled=false;btn.textContent='Sign in'}

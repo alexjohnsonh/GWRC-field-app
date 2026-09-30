@@ -69,23 +69,6 @@ details summary{cursor:pointer;font-weight:600}
     <button class="btn" id="signOut" type="button">Sign out</button>
   </section>
 
-  <section class="card">
-    <h2>First-time setup</h2>
-    <details>
-      <summary>Add the first admin by hand</summary>
-      <p class="muted">Only needed once, before anyone can sign in here. Type the name and PIN, then copy the values below into the Firebase console.</p>
-      <div class="row">
-        <div><label for="sName">Name</label><input id="sName" type="text" autocapitalize="words"></div>
-        <div><label for="sPin">PIN</label><input id="sPin" type="text" inputmode="numeric" maxlength="8"></div>
-      </div>
-      <div class="kv" id="setupOut"><span class="muted">Email</span><span class="mono" id="sEmail">–</span><span class="muted">Password</span><span class="mono" id="sPass">–</span></div>
-      <ol class="muted">
-        <li>Firebase console › Authentication › Users › Add user: paste the email and password above.</li>
-        <li>Firestore Database › Start collection <code>staff</code> › Document ID = the email above › fields <code>name</code> (string) = the name, <code>role</code> (string) = <code>admin</code>.</li>
-        <li>Come back to this page and sign in with that name and PIN.</li>
-      </ol>
-    </details>
-  </section>
 </main>
 <script src="firebase-app-compat.js"></script>
 <script src="firebase-auth-compat.js"></script>
@@ -103,10 +86,6 @@ const loginEmail=async(name,pin)=>{ // the PIN is hashed so it never shows in th
 const loginPass=pin=>`TG-fpi-${pin}`;
 const pinOk=p=>/^\d{4,8}$/.test(p);
 
-['sName','sPin'].forEach(id=>$(id).addEventListener('input',async()=>{
-  const n=$('sName').value.trim(),p=$('sPin').value.trim(),ok=n&&pinOk(p);
-  $('sEmail').textContent=ok?await loginEmail(n,p):'–';$('sPass').textContent=ok?loginPass(p):'–';
-}));
 
 const ready=window.FIREBASE_CONFIG&&FIREBASE_CONFIG.apiKey&&!/PASTE/.test(FIREBASE_CONFIG.apiKey);
 if(!ready){$('cfgErr').hidden=false;$('aBtn').disabled=true}
@@ -118,7 +97,7 @@ else{
   auth.onAuthStateChanged(async u=>{
     me=null;
     if(u){try{const d=await db.collection('staff').doc(u.email).get();if(d.exists&&d.data().role==='admin')me={email:u.email,...d.data()}}catch(e){}}
-    if(u&&!me){$('aErr').textContent='That sign-in is not an admin.';await auth.signOut();return}
+    if(u&&!me){$('aErr').textContent='Signed in, but this person is not set up as an admin in the Firestore "staff" collection (role must be admin).';await auth.signOut();return}
     $('signCard').hidden=!!me;$('addCard').hidden=$('usersCard').hidden=!me;
     if(me)refresh();
   });
@@ -126,7 +105,12 @@ else{
     const n=$('aName').value.trim(),p=$('aPin').value.trim();$('aErr').textContent='';
     if(!n||!pinOk(p)){$('aErr').textContent='Enter your name and 4 to 8 digit PIN.';return}
     try{await auth.signInWithEmailAndPassword(await loginEmail(n,p),loginPass(p))}
-    catch(e){$('aErr').textContent=/too-many/.test(e.code)?'Too many attempts. Wait a few minutes.':'Name or PIN not recognised.'}
+    catch(e){const c=e.code||'';$('aErr').textContent=
+      /too-many/.test(c)?'Too many attempts. Wait a few minutes.'
+      :/invalid-credential|wrong-password|user-not-found|invalid-login/.test(c)?'Name or PIN not recognised. Check the name is spelt exactly as it was set up.'
+      :c==='auth/operation-not-allowed'?'Email/Password sign-in is not turned on in Firebase (Authentication > Sign-in method).'
+      :c==='auth/network-request-failed'?'Can\'t reach Firebase. Check your connection.'
+      :'Sign-in failed: '+(c||e.message)}
   };
   $('signOut').onclick=()=>auth.signOut();
   async function refresh(){

@@ -78,3 +78,13 @@ directly in the Firebase console (Firestore and Storage).
 
 Edit the file, and change `VERSION` in `sw.js` (e.g. `fpi-v4` → `fpi-v5`) in the same commit so phones pick it up.
 If you change how logins are made (`loginEmail` in app.js), change it identically in admin.html.
+
+## GPS and the location map
+
+- The form has a **GPS location** field under Culvert No. It fills itself the first time a Culvert No. is typed on a new
+  inspection (the phone asks for location permission once), or tap **Use my location**. GPS works without cell coverage.
+  Coordinates can also be typed by hand as `latitude, longitude`.
+- The CSV has separate **Latitude**, **Longitude** and **GPS accuracy (m)** columns.
+- The PDF fills "Latitude/Longitude Coordinates" and adds a **Location** map with a red dot above the photos.
+  The map uses OpenStreetMap tiles, so the report must be made with an internet connection
+  (without one it shows "Map could not be loaded").
