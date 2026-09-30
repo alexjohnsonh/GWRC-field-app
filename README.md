@@ -88,3 +88,18 @@ If you change how logins are made (`loginEmail` in app.js), change it identicall
 - The PDF fills "Latitude/Longitude Coordinates" and adds a **Location** map with a red dot above the photos.
   The map uses OpenStreetMap tiles, so the report must be made with an internet connection
   (without one it shows "Map could not be loaded").
+
+## Culvert list (suggestions only)
+
+- The list lives in Firestore, collection `culverts`. Manage it on **admin.html → Culvert list**
+  (**Load TG 2026 Master list**, 52 culverts, from "TG 2026 Master for monitoring": catchment, sub catchment, stream class, outlet location, grade, pipe size and class. Loading it again updates those 52 and keeps any you added).
+- Phones download the list when they sign in or sync, so it works offline.
+- In the form, Culvert No. is always typed freely and is **never filled in automatically**. The app only suggests:
+  nearby culverts (from GPS) when the box is tapped, matches while typing (ignores spaces, dashes, case and "(Bridge 17)"),
+  "Did you mean…" for near-misses, and a warning if the GPS is over 200 m from the listed culvert. Tapping a suggestion uses it.
+- On save the inspection records `culvert_ref` = the matched listed name, or blank if not in the list.
+- **admin.html → Culvert names to check** lists uploaded inspections whose name wasn't in the list. Link them to a listed
+  culvert, or add the name to the list. The typed name is always kept; the link is stored as `culvertRef`.
+- The CSV has a "Culvert in list" column. The GWRC report fills Culvert Type, diameter and length from the list, and uses
+  the list's coordinates for the map when there is no GPS fix.
+- `firestore.rules` changed for this: publish the new version.

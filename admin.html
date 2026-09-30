@@ -69,6 +69,28 @@ details summary{cursor:pointer;font-weight:600}
     <button class="btn" id="signOut" type="button">Sign out</button>
   </section>
 
+  <section class="card" id="checkCard" hidden>
+    <h2>Culvert names to check</h2>
+    <p class="muted">Inspections saved with a culvert name that isn't in the list. Link each one to the right culvert, or add it to the list as a new culvert. The name the inspector typed is always kept as well.</p>
+    <div id="checks"><p class="muted">Loading…</p></div>
+    <p id="checkMsg"></p>
+  </section>
+
+  <section class="card" id="cvCard" hidden>
+    <h2>Culvert list</h2>
+    <p class="muted" id="cvCount"></p>
+    <button class="btn primary" id="cvStarter" type="button">Load TG 2026 Master list (52 culverts)</button>
+    <p class="muted" id="cvStarterNote"></p>
+    <form class="row" id="cvForm" novalidate style="margin-top:10px">
+      <div><label for="cvName">Culvert name</label><input id="cvName" type="text" autocapitalize="characters" placeholder="e.g. CTR 15330"></div>
+      <div><label for="cvLoc">Location (optional)</label><input id="cvLoc" type="text" inputmode="decimal" placeholder="-41.10000, 174.90000"></div>
+      <button class="btn primary" type="submit">Add</button>
+    </form>
+    <p id="cvMsg"></p>
+    <div class="tablewrap"><table><thead><tr><th>Name</th><th>Catchment</th><th>Location</th><th>Pipe</th><th></th></tr></thead><tbody id="cvRows"></tbody></table></div>
+    <p class="muted">Phones download this list when they sign in or sync, and use it for suggestions only. Nothing is ever filled in automatically.</p>
+  </section>
+
 </main>
 <script src="firebase-app-compat.js"></script>
 <script src="firebase-auth-compat.js"></script>
@@ -98,8 +120,8 @@ else{
     me=null;
     if(u){try{const d=await db.collection('staff').doc(u.email).get();if(d.exists&&d.data().role==='admin')me={email:u.email,...d.data()}}catch(e){}}
     if(u&&!me){$('aErr').textContent='Signed in, but this person is not set up as an admin in the Firestore "staff" collection (role must be admin).';await auth.signOut();return}
-    $('signCard').hidden=!!me;$('addCard').hidden=$('usersCard').hidden=!me;
-    if(me)refresh();
+    $('signCard').hidden=!!me;['addCard','usersCard','checkCard','cvCard'].forEach(id=>$(id).hidden=!me);
+    if(me){refresh();loadCulverts()}
   });
   $('aBtn').onclick=async()=>{
     const n=$('aName').value.trim(),p=$('aPin').value.trim();$('aErr').textContent='';
@@ -143,6 +165,75 @@ else{
     if(!b.dataset.armed){b.dataset.armed='1';b.textContent='Confirm remove';b.classList.add('danger');
       setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='Remove';b.classList.remove('danger')}},3000);return}
     try{await db.collection('staff').doc(b.dataset.del).delete();refresh()}catch(err){msg('Could not remove: '+(err.code||err.message),'err')}
+  });
+
+  /* ---------- culvert list + names to check ---------- */
+  const STARTER=[{"name": "MCK1850", "catchment": "Wainui", "subcatchment": "Wainui 03", "streamClass": "Perennial", "lat": -40.98266391, "lng": 174.9686682}, {"name": "MCK WALKER", "catchment": "Wainui", "subcatchment": "Wainui 03", "streamClass": "Perennial", "lat": -40.9833, "lng": 174.970149}, {"name": "MCK 1900", "catchment": "Wainui", "subcatchment": "Wainui 03/04", "lat": -40.9819, "lng": 174.968}, {"name": "MCK2000", "catchment": "Wainui", "subcatchment": "Wainui 04", "streamClass": "Intermittent", "lat": -40.98286401, "lng": 174.9685552}, {"name": "NRT3220", "catchment": "Te Puka", "subcatchment": "Te Puka 05", "streamClass": "Perennial", "pipeSize": "1200x900Ø", "pipeClass": "BOX", "slope": 0.05, "lat": -40.99455502, "lng": 174.9654317}, {"name": "NRT4220", "catchment": "Te Puka", "subcatchment": "Te Puka 10", "streamClass": "Intermittent", "pipeSize": "1x1200x900Ø", "pipeClass": "BOX", "slope": 0.05, "lat": -41.00335398, "lng": 174.9633984}, {"name": "NRT4760", "catchment": "Te Puka", "subcatchment": "Te Puka 13", "streamClass": "Perennial", "pipeSize": "(1x)1200x900Ø", "pipeClass": "BOX", "slope": 0.05, "lat": -41.008065, "lng": 174.961286}, {"name": "NRT5570", "catchment": "Horokiri", "subcatchment": "Horokiri 04", "streamClass": "Perennial", "pipeSize": "1200x900Ø", "pipeClass": "BOX", "slope": 0.0497, "lat": -41.01502203, "lng": 174.958278}, {"name": "NRT6010", "catchment": "Horokiri", "subcatchment": "Horokiri 07", "streamClass": "Perennial", "pipeSize": "1200x900Ø", "pipeClass": "BOX", "slope": 0.0506, "lat": -41.01884703, "lng": 174.957639}, {"name": "NRT7130", "catchment": "Horokiri", "subcatchment": "Horokiri 15", "streamClass": "Perennial", "lat": -41.02885731, "lng": 174.9547356}, {"name": "NRT7410", "catchment": "Horokiri", "subcatchment": "Horokiri 16", "streamClass": "Perennial", "lat": -41.031248, "lng": 174.954003}, {"name": "NRT9040", "catchment": "Horokiri", "subcatchment": "Horokiri 24", "streamClass": "Perennial", "lat": -41.045888, "lng": 174.952206}, {"name": "NRT11490", "catchment": "Horokiri", "subcatchment": "Horokiri 25C", "streamClass": "Perennial", "lat": -41.066608, "lng": 174.943626}, {"name": "CTR 12525", "catchment": "Ration", "subcatchment": "Ration 1", "streamClass": "Perennial", "pipeSize": "(1x)1500Ø + (1x)1200Ø", "pipeClass": "HDPE", "slope": 0.02, "lat": -41.07590231, "lng": 174.9425357}, {"name": "CTR 12535", "catchment": "Ration", "subcatchment": "Ration 1", "streamClass": "Perennial", "pipeSize": "(1x)1500Ø + (1x)1200Ø", "pipeClass": "HDPE", "slope": 0.025, "lat": -41.07597257, "lng": 174.9415736}, {"name": "CTR 12810", "catchment": "Ration", "subcatchment": "Ration 3", "streamClass": "Intermittent", "lat": -41.07816765, "lng": 174.9417168}, {"name": "CTR 13290", "catchment": "Ration", "subcatchment": "Ration 7", "streamClass": "Perennial", "pipeSize": "1800Ø + (2x)1500Ø", "pipeClass": "HDPE", "slope": 0.007, "lat": -41.0820828, "lng": 174.9408488}, {"name": "CTR 13580", "catchment": "Ration", "subcatchment": "Ration 8", "streamClass": "Intermittent", "pipeSize": "1500Ø", "pipeClass": "HDPE", "slope": 0.015, "lat": -41.08504518, "lng": 174.9403765}, {"name": "FLT30", "catchment": "Ration", "subcatchment": "Ration 8", "streamClass": "Intermittent", "lat": -41.083375, "lng": 174.94243611}, {"name": "FLT650", "catchment": "Ration", "subcatchment": "Ration 10", "streamClass": "Perennial", "lat": -41.087949, "lng": 174.937841}, {"name": "FLT660", "catchment": "Ration", "subcatchment": "Ration 10", "streamClass": "Perennial", "lat": -41.088176, "lng": 174.937623}, {"name": "FLT790", "catchment": "Ration", "subcatchment": "Ration 10", "streamClass": "Intermittent", "lat": -41.089521, "lng": 174.937718}, {"name": "FLT905", "catchment": "Ration", "subcatchment": "Ration 10", "streamClass": "Perennial", "lat": -41.090085, "lng": 174.93794}, {"name": "CTR 14455", "catchment": "Ration", "subcatchment": "Ration 10", "streamClass": "Perennial", "pipeSize": "1500Ø + (2x)1200Ø", "pipeClass": "HDPE", "slope": 0.013, "lat": -41.09226877, "lng": 174.9334335}, {"name": "TC14520", "catchment": "Ration", "subcatchment": "Ration 10", "lat": -41.092094, "lng": 174.933056}, {"name": "CTR 15330", "catchment": "Ration", "subcatchment": "Ration 13", "streamClass": "Intermittent", "pipeSize": "1050Ø", "pipeClass": "HDPE", "slope": 0.01, "lat": -41.09912404, "lng": 174.931321}, {"name": "CTR 16305", "catchment": "Pauatahanui", "subcatchment": "Pauatahanui 1", "streamClass": "Wetland", "pipeSize": "750Ø", "pipeClass": "HDPE", "slope": 0.032, "lat": -41.107971, "lng": 174.925708}, {"name": "CTR 16390", "catchment": "Pauatahanui", "subcatchment": "Pauatahanui 1", "streamClass": "Wetland", "pipeSize": "1200Ø", "pipeClass": "HDPE", "slope": 0.009, "lat": -41.107997, "lng": 174.925648}, {"name": "CTR 16595", "catchment": "Pauatahanui", "subcatchment": "Pauatahanui 2", "streamClass": "Intermittent", "lat": -41.108914, "lng": 174.924648}, {"name": "CTR17180", "catchment": "Pauatahanui", "subcatchment": "Pauatahanui 6", "streamClass": "No existing stream", "lat": -41.11084777, "lng": 174.918544}, {"name": "CTR17140", "catchment": "Pauatahanui", "subcatchment": "Pauatahanui 07", "streamClass": "Intermittent", "lat": -41.108686, "lng": 174.917005}, {"name": "CTR17150", "catchment": "Pauatahanui", "subcatchment": "Pauatahanui 07", "streamClass": "Intermittent", "lat": -41.108777, "lng": 174.917279}, {"name": "CTR17160", "catchment": "Pauatahanui", "subcatchment": "Pauatahanui 07", "streamClass": "Intermittent", "pipeSize": "900Ø", "pipeClass": "HDPE", "slope": 0.005, "lat": -41.110605, "lng": 174.918435}, {"name": "CTR17670", "catchment": "Pauatahanui", "subcatchment": "Pauatahanui 08", "streamClass": "Intermittent", "pipeSize": "1500Ø", "pipeClass": "HDPE", "slope": 0.011, "lat": -41.11548576, "lng": 174.9164281}, {"name": "CTR 20350", "catchment": "Duck", "subcatchment": "Duck 07", "streamClass": "Intermittent", "pipeSize": "1500Ø", "pipeClass": "HDPE", "slope": 0.031, "lat": -41.13429528, "lng": 174.8972584}, {"name": "CTR 20720", "catchment": "Duck", "subcatchment": "Duck 08", "streamClass": "Intermittent", "pipeSize": "1200Ø", "pipeClass": "HDPE", "slope": 0.01, "lat": -41.13814201, "lng": 174.895034}, {"name": "CTR 20960", "catchment": "Duck", "subcatchment": "Duck 09", "streamClass": "Intermittent", "pipeSize": "1650Ø", "pipeClass": "HDPE", "slope": 0.011, "lat": -41.140084, "lng": 174.894108}, {"name": "DM1", "catchment": "Duck", "subcatchment": "Duck 9", "lat": -41.139738, "lng": 174.894168}, {"name": "STH 21130", "catchment": "Duck", "subcatchment": "Duck 10", "streamClass": "Wetland", "lat": -41.141116, "lng": 174.893184}, {"name": "DM2", "catchment": "Duck", "subcatchment": "Duck 10", "lat": -41.14075, "lng": 174.89295}, {"name": "STH 21310 (Bridge 17)", "aliases": ["STH 21310", "Bridge 17"], "catchment": "Duck", "subcatchment": "Duck 11", "streamClass": "Perennial", "lat": -41.142315, "lng": 174.891674}, {"name": "WWTC21300", "catchment": "Duck", "subcatchment": "Duck 11", "lat": -41.142367, "lng": 174.891697}, {"name": "DM3", "catchment": "Duck", "subcatchment": "Duck 11", "lat": -41.142273, "lng": 174.891181}, {"name": "STH 21600 (Bridge 18)", "aliases": ["STH 21600", "Bridge 18"], "catchment": "Duck", "subcatchment": "Duck 12", "streamClass": "Perennial", "lat": -41.14394273, "lng": 174.8895531}, {"name": "DM4", "catchment": "Duck", "subcatchment": "Duck 12", "lat": -41.143846, "lng": 174.889417}, {"name": "DM5", "catchment": "Duck", "subcatchment": "Duck main stem"}, {"name": "DM6", "catchment": "Duck", "subcatchment": "Duck main stem", "lat": -41.1477, "lng": 174.885709}, {"name": "STH 22500", "catchment": "Duck", "subcatchment": "Duck 14", "streamClass": "Intermittent", "pipeSize": "1400Ø", "pipeClass": "HDPE", "slope": 0.01, "lat": -41.15028422, "lng": 174.8845105}, {"name": "STH 22650", "catchment": "Duck", "subcatchment": "Duck 15", "streamClass": "Perennial", "lat": -41.152283, "lng": 174.88229}, {"name": "STH 25060", "catchment": "Kenepuru", "subcatchment": "Kenepuru 9", "streamClass": "Perennial", "lat": -41.150853, "lng": 174.857202}, {"name": "STH 25720", "catchment": "Porirua", "subcatchment": "Porirua 01", "streamClass": "Perennial", "pipeSize": "1800Ø", "pipeClass": "HDPE", "slope": 0.01, "lat": -41.149141, "lng": 174.848034}, {"name": "STH 26450", "catchment": "Porirua", "subcatchment": "Porirua 05", "streamClass": "Intermittent", "pipeSize": "1350Ø", "pipeClass": "HDPE", "slope": 0.01, "lat": -41.152796, "lng": 174.84124}]; // from "TG 2026 Master for monitoring" (Oct 2026)
+  const ckey=s=>String(s||'').toUpperCase().replace(/\(.*?\)/g,'').replace(/[^A-Z0-9]/g,'');
+  const ckeyFull=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  const cvId=n=>ckeyFull(n)||'X';
+  let CV=[];
+  const cvMsg=(t,c)=>{$('cvMsg').className=c;$('cvMsg').textContent=t};
+  async function loadCulverts(){
+    const s=await db.collection('culverts').get();
+    CV=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true}));
+    $('cvCount').textContent=`${CV.length} culvert${CV.length===1?'':'s'} in the list.`;
+    $('cvStarterNote').textContent=CV.length?'Loading it again updates the details of those 52 culverts. Culverts you added yourself are kept.':'';
+    $('cvRows').innerHTML=CV.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc([c.catchment,c.subcatchment].filter(Boolean).join(' · ')||'–')}</td><td class="mono">${c.lat!=null?c.lat.toFixed(5)+', '+c.lng.toFixed(5):'–'}</td><td>${esc([c.pipeSize,c.pipeClass].filter(Boolean).join(' ')||'–')}</td>
+      <td><button class="btn small" data-cvdel="${esc(c.id)}">Remove</button></td></tr>`).join('');
+    loadChecks();
+  }
+  $('cvStarter').onclick=async()=>{
+    const btn=$('cvStarter');
+    if(CV.length&&!btn.dataset.armed){btn.dataset.armed='1';btn.textContent='Tap again to update the 52 culverts';setTimeout(()=>{delete btn.dataset.armed;btn.textContent='Load TG 2026 Master list (52 culverts)'},4000);return}
+    delete btn.dataset.armed;btn.textContent='Load TG 2026 Master list (52 culverts)';
+    const b=db.batch();STARTER.forEach(c=>b.set(db.collection('culverts').doc(cvId(c.name)),{...c,added:new Date().toISOString()}));
+    try{await b.commit();cvMsg('Loaded '+STARTER.length+' culverts.','ok');loadCulverts()}catch(e){cvMsg('Could not load: '+(e.code||e.message),'err')}
+  };
+  const parseLoc=s=>{const m=String(s||'').match(/(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)/);return m?{lat:+m[1],lng:+m[2]}:null};
+  $('cvForm').addEventListener('submit',async e=>{
+    e.preventDefault();const n=$('cvName').value.trim();if(!n)return cvMsg('Enter a culvert name.','err');
+    const dup=CV.find(c=>ckeyFull(c.name)===ckeyFull(n)||ckey(c.name)===ckey(n));if(dup)return cvMsg(`Already in the list as ${dup.name}.`,'err');
+    const L=parseLoc($('cvLoc').value),d={name:n,added:new Date().toISOString()};if(L){d.lat=L.lat;d.lng=L.lng}
+    try{await db.collection('culverts').doc(cvId(n)).set(d);$('cvName').value='';$('cvLoc').value='';cvMsg(n+' added.','ok');loadCulverts()}catch(err){cvMsg('Could not add: '+(err.code||err.message),'err')}
+  });
+  $('cvRows').addEventListener('click',async e=>{
+    const b=e.target.closest('button[data-cvdel]');if(!b)return;
+    if(!b.dataset.armed){b.dataset.armed='1';b.textContent='Confirm';b.classList.add('danger');setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='Remove';b.classList.remove('danger')}},3000);return}
+    try{await db.collection('culverts').doc(b.dataset.cvdel).delete();loadCulverts()}catch(err){cvMsg('Could not remove: '+(err.code||err.message),'err')}
+  });
+  // inspections whose culvert name didn't match the list (and haven't been linked yet)
+  async function loadChecks(){
+    const box=$('checks');
+    try{
+      const s=await db.collection('inspections').get(),groups={};
+      s.docs.forEach(d=>{const x=d.data();if(!x.v||x.culvertRef||x.v.culvert_ref)return;
+        const t=String(x.v.culvert_no||'').trim(),k=ckeyFull(t)||'(blank)';(groups[k]=groups[k]||{typed:t||'(blank)',ids:[],dates:[]}).ids.push(d.id);groups[k].dates.push(x.v.date||'')});
+      const g=Object.values(groups);
+      if(!g.length){box.innerHTML='<p class="ok">Nothing to check. Every uploaded inspection matches a culvert in the list.</p>';return}
+      const opts=CV.map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+      box.innerHTML=`<div class="tablewrap"><table><thead><tr><th>Typed as</th><th>Inspections</th><th>Link to</th><th></th></tr></thead><tbody>${g.map((x,i)=>`<tr>
+        <td><b>${esc(x.typed)}</b></td><td>${x.ids.length} <span class="muted">(${[...new Set(x.dates)].filter(Boolean).map(d=>d.split('-').reverse().join('/')).join(', ')})</span></td>
+        <td><select id="lk${i}" style="font:15px var(--f-ui);padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)"><option value="">Choose culvert…</option>${opts}</select></td>
+        <td style="display:flex;gap:6px"><button class="btn small" data-link="${i}">Link</button><button class="btn small" data-new="${i}">Add as new culvert</button></td></tr>`).join('')}</tbody></table></div>`;
+      box._groups=g;
+    }catch(e){box.innerHTML='<p class="err">Could not load inspections: '+esc(e.code||e.message)+'</p>'}
+  }
+  async function linkIds(ids,name){
+    const b=db.batch(),iso=new Date().toISOString();
+    ids.forEach(id=>b.update(db.collection('inspections').doc(id),{culvertRef:name,linkedAt:iso,linkedBy:me.name||''}));await b.commit();
+  }
+  $('checks').addEventListener('click',async e=>{
+    const bl=e.target.closest('button[data-link],button[data-new]');if(!bl)return;const g=$('checks')._groups;
+    const m=(t,c)=>{$('checkMsg').className=c;$('checkMsg').textContent=t};
+    try{
+      if(bl.dataset.link!=null){const x=g[+bl.dataset.link],name=$('lk'+bl.dataset.link).value;if(!name)return m('Choose a culvert to link to first.','err');
+        await linkIds(x.ids,name);m(`Linked "${x.typed}" to ${name}.`,'ok')}
+      else{const x=g[+bl.dataset.new];if(x.typed==='(blank)')return m('A blank name cannot be added. Link it instead.','err');
+        await db.collection('culverts').doc(cvId(x.typed)).set({name:x.typed,added:new Date().toISOString()},{merge:true});
+        await linkIds(x.ids,x.typed);m(`Added ${x.typed} to the list.`,'ok')}
+      loadCulverts();
+    }catch(err){m('Could not save: '+(err.code||err.message),'err')}
   });
 }
 </script>

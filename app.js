@@ -117,7 +117,7 @@ function paint(){
     }else if(f.type==='photo'){showShot(f.k)}
     else{const el=$('f-'+f.k);if(el.value!==String(v))el.value=v}
   });
-  applyRules();progress();refreshInspector();
+  applyRules();progress();refreshInspector();if(typeof cvHelp==='function')cvHelp(!!cur.v.culvert_no);
   $('formStatus').textContent=cur.id?`Editing saved inspection · ${cur.v.culvert_no||''}`:'New inspection · draft saves automatically';
   $('saveBtn').textContent=cur.id?'Update inspection':'Save inspection';
 }
@@ -194,7 +194,7 @@ function getGPS(auto){
   navigator.geolocation.getCurrentPosition(p=>{
     gpsBusy=false;$('gpsBtn').disabled=false;
     const v=`${p.coords.latitude.toFixed(6)}, ${p.coords.longitude.toFixed(6)}`,acc=Math.round(p.coords.accuracy);
-    cur.v.location=v;cur.v.location_acc=String(acc);$('f-location').value=v;changed('location');
+    cur.v.location=v;cur.v.location_acc=String(acc);$('f-location').value=v;changed('location');if(typeof cvHelp==='function')cvHelp(false);
     note.textContent=`Location recorded (accurate to about ${acc} m).`+(acc>50?' Try again in the open for a better fix.':'');
   },e=>{
     gpsBusy=false;$('gpsBtn').disabled=false;
@@ -204,7 +204,56 @@ function getGPS(auto){
 form.addEventListener('click',e=>{if(e.target.id==='gpsBtn')getGPS(false)});
 // first time a Culvert No. is typed on a new inspection, grab the location automatically
 var gpsAutoDone=false; // var: fresh() can run before this line
-form.addEventListener('change',e=>{if(e.target.id==='f-culvert_no'&&!gpsAutoDone&&!cur.id&&!(cur.v.location||'').trim()){gpsAutoDone=true;getGPS(true)}});
+form.addEventListener('focusin',e=>{if(e.target.id==='f-culvert_no'&&!gpsAutoDone&&!cur.id&&!(cur.v.location||'').trim()){gpsAutoDone=true;getGPS(true)}});
+
+/* ---------- culvert list: suggestions only, never filled in automatically ---------- */
+let CULVERTS=load('fpi.culverts.v1',[]);
+const ckey=s=>String(s||'').toUpperCase().replace(/\(.*?\)/g,'').replace(/[^A-Z0-9]/g,'');   // ignores spaces, dashes, case, "(Bridge 17)"
+const ckeyFull=s=>String(s||'').toUpperCase().replace(/[^A-Z0-9]/g,'');
+const cvKeys=c=>[ckeyFull(c.name),ckey(c.name),...(c.aliases||[]).map(ckeyFull)].filter(Boolean);
+function findCulvert(t){if(!t)return null;const a=ckeyFull(t),b=ckey(t);return CULVERTS.find(c=>{const k=cvKeys(c);return k.includes(a)||k.includes(b)})||null}
+const cvByName=n=>n?CULVERTS.find(c=>c.name===n)||null:null;
+function lev(a,b){const d=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let p=d[0];d[0]=i;for(let j=1;j<=b.length;j++){const t=d[j];d[j]=Math.min(d[j]+1,d[j-1]+1,p+(a[i-1]===b[j-1]?0:1));p=t}}return d[b.length]}
+function distM(a,b){const R=6371e3,r=x=>x*Math.PI/180,dl=r(b.lat-a.lat),dg=r(b.lng-a.lng),h=Math.sin(dl/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dg/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+const fmtDist=m=>m<1000?Math.round(m/10)*10+' m':(m/1000).toFixed(1)+' km';
+function cvSuggest(t,loc){
+  const k=ckeyFull(t);
+  let L=CULVERTS.map(c=>{const ks=cvKeys(c);let sc=null;
+    if(k){if(ks.some(x=>x.startsWith(k)))sc=0;else if(k.length>=2&&ks.some(x=>x.includes(k)))sc=1;
+      else if(k.length>=4){const d=Math.min(...ks.map(x=>lev(x,k)));if(d<=2)sc=1+d}}
+    return{c,sc,dm:loc&&c.lat!=null?distM(loc,c):null}});
+  L=k?L.filter(x=>x.sc!==null).sort((a,b)=>a.sc-b.sc||(a.dm??1e12)-(b.dm??1e12)):L.filter(x=>x.dm!=null&&x.dm<2000).sort((a,b)=>a.dm-b.dm);
+  return L.slice(0,5);
+}
+function cvHelp(final){
+  const box=$('cvHelp');if(!box)return;
+  const t=String(cur.v.culvert_no||'').trim(),loc=parseLoc(cur.v.location);
+  if(!CULVERTS.length){box.innerHTML=t?'':'<p class="cvlab">The culvert list downloads when you sign in with coverage.</p>';return}
+  const chips=L=>'<div class="cvchips">'+L.map(x=>`<button type="button" class="cvchip" data-cv="${esc(x.c.name)}">${esc(x.c.name)}${x.dm!=null?`<small>${fmtDist(x.dm)}</small>`:''}</button>`).join('')+'</div>';
+  const ex=findCulvert(t);let h='';
+  if(ex){
+    h=`<p class="cvok">✓ In the culvert list${ckeyFull(ex.name)!==ckeyFull(t)?` as <b>${esc(ex.name)}</b> <button type="button" class="cvchip" data-cv="${esc(ex.name)}">Use this spelling</button>`:''}</p>`;
+    const dm=loc&&ex.lat!=null?distM(loc,ex):null;
+    if(dm!=null&&dm>200)h+=`<p class="cvwarn">You're about ${fmtDist(dm)} from where ${esc(ex.name)} is listed. Check it's the right culvert.</p>`;
+  }else{
+    const L=cvSuggest(t,loc);
+    if(!t&&L.length)h='<p class="cvlab">Near you (tap to use):</p>'+chips(L);
+    else if(t&&L.length)h=`<p class="cvlab">${final?'Not in the list. Did you mean':'Suggestions (tap to use)'}:</p>`+chips(L);
+    else if(t&&final)h='<p class="cvnew">Not in the culvert list. It will be saved as typed and flagged for the office to check.</p>';
+  }
+  box.innerHTML=h;
+}
+(()=>{const f=form.querySelector('.field[data-k="culvert_no"]'),d=document.createElement('div');d.id='cvHelp';d.className='cvhelp';f.appendChild(d)})();
+$('f-culvert_no').addEventListener('input',()=>setTimeout(()=>cvHelp(false),0));
+$('f-culvert_no').addEventListener('blur',()=>setTimeout(()=>cvHelp(true),250)); // delay so a tap on a suggestion still lands
+form.addEventListener('click',e=>{const b=e.target.closest('.cvchip');if(!b)return;
+  cur.v.culvert_no=b.dataset.cv;$('f-culvert_no').value=b.dataset.cv;changed('culvert_no');cvHelp(true)});
+async function fetchCulverts(){ // small list; refreshed whenever the phone is online and signed in
+  if(!FB_READY||!fbAuth||!fbAuth.currentUser||!navigator.onLine)return;
+  try{const s=await withTimeout(fdb.collection('culverts').get(),20e3);
+    CULVERTS=s.docs.map(d=>d.data()).filter(c=>c&&c.name);store('fpi.culverts.v1',CULVERTS);cvHelp(false)}catch(e){}
+}
+const cvFor=r=>cvByName(r.linkRef)||cvByName(r.v.culvert_ref)||findCulvert(r.v.culvert_no);
 
 /* ---------- save / clear ---------- */
 function issues(v){
@@ -220,6 +269,7 @@ $('saveBtn').onclick=()=>{
     toast(`${miss.length} required field${miss.length>1?'s':''} still to fill`);return;
   }
   cur.v.culvert_no=String(cur.v.culvert_no).trim().replace(/\s+/g,' ').toUpperCase(); // tidy for matching at the office
+  {const m=findCulvert(cur.v.culvert_no);cur.v.culvert_ref=m?m.name:''} // link to the list; blank = flagged for the office
   const stamp=new Date().toISOString();
   if(cur.id){const i=records.findIndex(r=>r.id===cur.id);const rec={...records[i],v:{...cur.v},updated:stamp};if(i>=0)records[i]=rec;else records.unshift(rec)}
   else records.unshift({id:'FPI-'+Date.now().toString(36).toUpperCase(),saved:stamp,updated:stamp,v:{...cur.v}});
@@ -269,7 +319,7 @@ $('list').addEventListener('click',e=>{
 function csv(){
   // Field data only; merge with the culvert spreadsheet at the office on the Culvert No. column
   const col=f=>[f.type==='photo'?`Photo ${f.n}: ${f.l}`:(f.csv||f.l)+(f.unit?` (${f.unit})`:''),r=>f.type==='photo'?(r.v[f.k]?photoName(r,f):''):f.k==='date'?fmtDate(r.v.date):r.v[f.k]];
-  const cols=[col(FIELDS[0]),
+  const cols=[col(FIELDS[0]),['Culvert in list',r=>{const c=cvFor(r);return c?c.name:'NOT IN LIST'}],
     ...FIELDS.slice(1).flatMap(f=>f.k==='location'?[['Latitude',r=>{const L=parseLoc(r.v.location);return L?L.lat:''}],['Longitude',r=>{const L=parseLoc(r.v.location);return L?L.lng:''}]]:[col(f)]),
     ['GPS accuracy (m)',r=>r.v.location_acc||''],['Issue count',r=>issues(r.v).length],['Record ID',r=>r.id],['Saved',r=>r.saved],['Last updated',r=>r.updated]];
   const q=s=>{s=String(s??'');return /[",\n\r]/.test(s)?`"${s.replace(/"/g,'""')}"`:s};
@@ -470,10 +520,13 @@ async function buildReport(){
   for(const r of recs){
     newPage();const first=doc.getNumberOfPages();
     kvTable('Asset Identification',[
-      ['RAMM Reference / Culvert No.:',r.v.culvert_no],
-      ['Road / Catchment / Stream Name:',''],
-      ['Latitude/Longitude Coordinates:',(()=>{const L=parseLoc(r.v.location);return L?`${L.lat.toFixed(6)}, ${L.lng.toFixed(6)}`+(r.v.location_acc?`  (GPS ±${r.v.location_acc} m)`:''):''})()],
-      ['Culvert Type:',''],['Culvert diameter:',''],['Culvert length:','']],CW*0.5);
+      ['RAMM Reference / Culvert No.:',(()=>{const c=cvFor(r);return r.v.culvert_no+(c&&c.name!==r.v.culvert_no?`  (listed as ${c.name})`:c?'':'  (not in culvert list)')})()],
+      ['Road / Catchment / Stream Name:',(c=>c?[c.catchment&&('Catchment: '+c.catchment+(c.subcatchment?` (${c.subcatchment})`:'')),c.streamClass&&('Stream: '+c.streamClass)].filter(Boolean).join('  ·  '):'')(cvFor(r))],
+      ['Latitude/Longitude Coordinates:',(()=>{const L=parseLoc(r.v.location),c=cvFor(r);return L?`${L.lat.toFixed(6)}, ${L.lng.toFixed(6)}`+(r.v.location_acc?`  (GPS ±${r.v.location_acc} m)`:''):c&&c.lat!=null?`${c.lat.toFixed(6)}, ${c.lng.toFixed(6)}  (from culvert list)`:''})()],
+      ...(()=>{const c=cvFor(r)||{};
+        const type=[c.pipeClass||c.shape,c.material&&!c.pipeClass?c.material:'',c.slope!=null?`grade ${c.slope}`:''].filter(Boolean).join(', ');
+        const dia=c.pipeSize||(c.diameter?c.diameter+(/\d$/.test(c.diameter)?' mm':''):'');
+        return[['Culvert Type:',type],['Culvert diameter:',dia],['Culvert length:',c.length?c.length+' m':'']]})()],CW*0.5);
     kvTable('Inspection Details',[
       ['Name of inspector:',r.v.inspector],['Organisation:','ATS Environmental'],
       ['Inspection Date:',fmtDate(r.v.date)],['Inspection Time:',r.v.time],
@@ -513,7 +566,7 @@ async function buildReport(){
     need(note.length*LH+4);if(!v(r,'final_comments'))col(MUT);doc.text(note,M,y+3);y+=note.length*LH+6;
     // photographs, 2x2
     // location map + photographs on their own page
-    newPage();const L=parseLoc(r.v.location);
+    newPage();const L=parseLoc(r.v.location)||(c=>c&&c.lat!=null?{lat:c.lat,lng:c.lng}:null)(cvFor(r));
     heading('Location',0);const mh=72;
     draw(INK);doc.setLineWidth(0.25);
     if(L){
@@ -599,7 +652,7 @@ async function syncNow(manual){
   if(!auth||!fbAuth.currentUser){if(manual)showLogin();return}
   if(!navigator.onLine){if(manual)toast('No connection right now');syncUI();return}
   if(!pending().length){if(manual)toast('Everything is uploaded');SY.lastOk=Date.now();store('fpi.lastsync.v1',SY.lastOk);syncUI();return}
-  SY.busy=true;SY.msg='';syncUI();
+  SY.busy=true;SY.msg='';syncUI();fetchCulverts();
   const find=id=>records.find(x=>x.id===id),email=fbAuth.currentUser.email;
   try{
     for(const id of pending().map(r=>r.id)){
@@ -663,7 +716,7 @@ $('loginForm').addEventListener('submit',async e=>{
     auth={name:staff.data().name||name,email:cred.user.email,role:staff.data().role||'inspector'};store('fpi.auth.v1',auth);
     $('login').hidden=true;$('loginPin').value='';
     if(!cur.id&&!(cur.v.inspector||'').trim()){cur.v.inspector=auth.name;paint()}
-    toast(`Signed in as ${auth.name}`);syncUI();autoSync();
+    toast(`Signed in as ${auth.name}`);syncUI();autoSync();fetchCulverts();
   }catch(ex){
     const c=ex&&ex.code||'';
     err.textContent=c==='not-staff'?'This name isn\'t set up yet. Ask the office to add you.'
@@ -689,7 +742,8 @@ $('cloudPull').onclick=async()=>{
     for(const d of snap.docs){
       const it=d.data();i++;b.textContent=`Downloading ${i} of ${snap.size}…`;
       const local=records.find(r=>r.id===it.id);
-      if(!it.v||(local&&(local.updated||'')>=(it.updated||'')))continue;
+      if(!it.v)continue;
+      if(local&&(local.updated||'')>=(it.updated||'')){if((local.linkRef||'')!==(it.culvertRef||'')){local.linkRef=it.culvertRef||'';store(KEY.recs,records)}continue}
       const v={...it.v},ph={};
       for(const f of PHOTOS){
         if(!(it.photos||{})[f.k]){v[f.k]='';continue}
@@ -697,7 +751,7 @@ $('cloudPull').onclick=async()=>{
         const blob=await withTimeout(fetch(url).then(r=>{if(!r.ok)throw new Error('photo '+r.status);return r.blob()}),60e3);
         const pid='C'+it.id+f.k;await putPhoto(pid,blob);v[f.k]=pid;ph[f.k]=pid;
       }
-      const rec={id:it.id,saved:it.saved,updated:it.updated,v,sync:{json:it.updated,ph},by:it.uploadedByName};
+      const rec={id:it.id,saved:it.saved,updated:it.updated,v,sync:{json:it.updated,ph},by:it.uploadedByName,linkRef:it.culvertRef||''};
       if(local)records[records.indexOf(local)]=rec;else records.push(rec);added++;
       store(KEY.recs,records);
     }
@@ -708,7 +762,7 @@ $('cloudPull').onclick=async()=>{
 };
 if(fbAuth)fbAuth.onAuthStateChanged(u=>{ // Firebase remembers the sign-in on this phone, even offline
   if(!u&&auth&&navigator.onLine){auth=null;try{localStorage.removeItem('fpi.auth.v1')}catch(e){}}
-  syncUI();if(u)autoSync();
+  syncUI();if(u){autoSync();fetchCulverts()}
 });
 window.addEventListener('online',()=>{syncUI();autoSync()});
 window.addEventListener('offline',syncUI);
