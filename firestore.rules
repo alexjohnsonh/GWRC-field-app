@@ -15,11 +15,17 @@ service cloud.firestore {
     }
     match /inspections/{id} {
       allow read: if isStaff();
-      allow create, update: if isStaff() && request.resource.data.uploadedBy == request.auth.token.email;
+      // uploads by the person's own sign-in, and never for an inspection an admin has deleted everywhere
+      allow create, update: if isStaff() && request.resource.data.uploadedBy == request.auth.token.email
+        && !exists(/databases/$(db)/documents/deleted/$(id));
       // admins can link an inspection to a culvert in the list (only these fields)
       allow update: if isAdmin()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['culvertRef', 'linkedAt', 'linkedBy']);
       allow delete: if isAdmin();
+    }
+    match /deleted/{id} {       // "delete everywhere" markers: phones read them and remove their copies
+      allow read: if isStaff();
+      allow create, update: if isAdmin();
     }
     match /culverts/{id} {
       allow read: if isStaff();   // phones download the list for suggestions

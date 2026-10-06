@@ -103,3 +103,22 @@ If you change how logins are made (`loginEmail` in app.js), change it identicall
 - The CSV has a "Culvert in list" column. The GWRC report fills Culvert Type, diameter and length from the list, and uses
   the list's coordinates for the map when there is no GPS fix.
 - `firestore.rules` changed for this: publish the new version.
+
+## Photos in any order
+
+Take photos (camera) or choose several from the gallery, then tap which of the 4 views each one is. Filled views have
+**Retake** and **Change view**. A photo still waiting for its view blocks saving; the tray itself (`ph_pending`) is never
+saved into the inspection or uploaded.
+
+## Delete everywhere (admins)
+
+Admins see **Delete everywhere** on each saved inspection. It writes a marker to Firestore collection `deleted/{id}`,
+deletes `inspections/{id}` and its Storage photos, and removes the local copy. Every device reads `deleted` when it syncs
+(and every 10 minutes while open) and removes those inspections; the rules also stop a phone re-uploading a deleted one.
+`firestore.rules` and `storage.rules` changed for this: publish both.
+
+## Question order (Oct 2026)
+
+The form groups questions by location: WS.7 assessment, Upstream & inlet, Within the culvert, Downstream & outlet,
+Species & general notes, then the Photo log. Field keys are unchanged, so existing inspections, the cloud data and the
+GWRC (Appendix C) report are unaffected; the CSV columns follow the new order.

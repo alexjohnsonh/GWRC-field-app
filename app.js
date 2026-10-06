@@ -15,31 +15,32 @@ const SECTIONS=[
   {k:'impeded_to',l:'Is fish passage to the culvert impeded?',type:'choice',opts:YN,req:1,bad:'Yes'},
   {k:'impeded_through',l:'Is fish passage through the culvert impeded?',type:'choice',opts:YN,req:1,bad:'Yes'},
   {k:'ws7_comments',l:'Comments',csv:'WS.7 comments',type:'textarea'}]},
- {t:'General observations',f:[
-  {k:'inlet_cond',l:'Inlet condition',type:'choice',opts:GFP,req:1,bad:'Poor'},
-  {k:'outlet_cond',l:'Outlet condition',type:'choice',opts:GFP,req:1,bad:'Poor'},
-  {k:'culvert_cond',l:'Condition in culvert',type:'choice',opts:GFP,req:1,bad:'Poor'},
+ {t:'Upstream & inlet',f:[
   {k:'vel_up',l:'Velocity upstream',type:'choice',opts:LC,req:1},
+  {k:'inlet_cond',l:'Inlet condition',type:'choice',opts:GFP,req:1,bad:'Poor'},
+  {k:'scour_in',l:'Erosion or scouring at inlet',type:'choice',opts:YN,req:1,bad:'Yes'},
+  {k:'veg_in',l:'Vegetation at inlet',hint:'excluding planter pods',type:'choice',opts:YN,req:1},
+  {k:'us_tie',l:'Upstream tie-in',type:'choice',opts:PF,req:1,bad:'Fail'}]},
+ {t:'Within the culvert',f:[
+  {k:'culvert_cond',l:'Condition in culvert',type:'choice',opts:GFP,req:1,bad:'Poor'},
   {k:'vel_in',l:'Velocities in culvert',type:'choice',opts:LC,req:1},
-  {k:'vel_out',l:'Velocity at outlet',type:'choice',opts:LC,req:1},
   {k:'depth',l:'Water depth',type:'number',unit:'mm',req:1,half:1},
   {k:'flow',l:'Flow rate (estimate)',type:'number',unit:'L/s',req:1,half:1,step:'any'},
-  {k:'species',l:'Species observed during inspection',hint:'What & where?',type:'textarea'}]},
- {t:'Inspection of fish passage aids',f:[
+  {k:'sed_in',l:'Sediment / debris accumulation within culvert',type:'choice',opts:YN,req:1,bad:'Yes'},
   {k:'baffles',l:'Baffles / flexi baffles',type:'choice',opts:PF,req:1,bad:'Fail'},
-  {k:'spat_rope',l:'Spat rope',type:'choice',opts:PF,req:1,bad:'Fail'},
-  {k:'planter_pods',l:'Planter pods',type:'choice',opts:PF,req:1,bad:'Fail'},
-  {k:'apron_channels',l:'Concrete channels on apron',type:'choice',opts:PF,req:1,bad:'Fail'},
-  {k:'sed_in',l:'Sediment / debris accumulation within culvert',type:'choice',opts:YN,req:1,bad:'Yes'}]},
- {t:'Outlet, inlet & tie-ins',f:[
+  {k:'spat_rope',l:'Spat rope',type:'choice',opts:PF,req:1,bad:'Fail'}]},
+ {t:'Downstream & outlet',f:[
+  {k:'vel_out',l:'Velocity at outlet',type:'choice',opts:LC,req:1},
+  {k:'outlet_cond',l:'Outlet condition',type:'choice',opts:GFP,req:1,bad:'Poor'},
   {k:'sed_out',l:'Sediment / debris accumulation at outlet',type:'choice',opts:YN,req:1,bad:'Yes'},
-  {k:'scour_in',l:'Erosion or scouring at inlet',type:'choice',opts:YN,req:1,bad:'Yes'},
   {k:'scour_out',l:'Erosion or scouring at outlet',type:'choice',opts:YN,req:1,bad:'Yes'},
-  {k:'veg_in',l:'Vegetation at inlet',hint:'excluding planter pods',type:'choice',opts:YN,req:1},
   {k:'veg_out',l:'Vegetation at outlet',hint:'excluding planter pods',type:'choice',opts:YN,req:1},
-  {k:'us_tie',l:'Upstream tie-in',type:'choice',opts:PF,req:1,bad:'Fail'},
-  {k:'ds_tie',l:'Downstream tie-ins',type:'choice',opts:PF,req:1,bad:'Fail'},
-  {k:'final_comments',l:'Comments',csv:'Outlet, inlet & tie-in comments',type:'textarea'}]},
+  {k:'apron_channels',l:'Concrete channels on apron',type:'choice',opts:PF,req:1,bad:'Fail'},
+  {k:'planter_pods',l:'Planter pods',type:'choice',opts:PF,req:1,bad:'Fail'},
+  {k:'ds_tie',l:'Downstream tie-ins',type:'choice',opts:PF,req:1,bad:'Fail'}]},
+ {t:'Species & general notes',f:[
+  {k:'species',l:'Species observed during inspection',hint:'What & where?',type:'textarea'},
+  {k:'final_comments',l:'Other comments',csv:'General comments',type:'textarea'}]},
  {t:'Photo log',f:[
   {k:'ph1',l:'Upstream of culvert',type:'photo',req:1,half:1,n:1},
   {k:'ph2',l:'Upstream end of culvert',type:'photo',req:1,half:1,n:2},
@@ -76,9 +77,10 @@ function fieldHTML(f){
       <div class="gps"><input id="f-${f.k}" data-k="${f.k}" type="text" inputmode="decimal" autocomplete="off" placeholder="-41.10000, 174.90000">
       <button class="btn" type="button" id="gpsBtn">Use my location</button></div>
       <p class="fieldnote" id="gpsNote">GPS works without cell coverage. Stand at the culvert.</p></div>`;
-  if(f.type==='photo')return `<div class="field" data-k="${f.k}"><span class="q">${f.n}. ${esc(f.l)}${star}</span>
-      <div class="shot" id="s-${f.k}"><span>No photo yet</span></div>
-      <label class="btn shotbtn" for="f-${f.k}" id="b-${f.k}">Take photo</label>
+  if(f.type==='photo')return `<div class="field" data-k="${f.k}"><span class="q">${esc(f.l)}${star}</span>
+      <div class="shot" id="s-${f.k}"><span>Not taken yet</span></div>
+      <div class="shotbtns"><label class="btn shotbtn" for="f-${f.k}" id="b-${f.k}">Take photo</label>
+      <button type="button" class="btn shotbtn" data-move="${f.k}" id="m-${f.k}" hidden>Change view</button></div>
       <input id="f-${f.k}" data-k="${f.k}" type="file" accept="image/*" capture="environment" hidden></div>`;
   const lab=`<label for="f-${f.k}">${esc(f.l)}${star}${hint}</label>`;
   if(f.type==='textarea')return `<div class="field" data-k="${f.k}">${lab}<textarea id="f-${f.k}" data-k="${f.k}"></textarea></div>`;
@@ -117,7 +119,7 @@ function paint(){
     }else if(f.type==='photo'){showShot(f.k)}
     else{const el=$('f-'+f.k);if(el.value!==String(v))el.value=v}
   });
-  applyRules();progress();refreshInspector();if(typeof cvHelp==='function')cvHelp(!!cur.v.culvert_no);
+  applyRules();progress();refreshInspector();if(typeof renderPending==='function')renderPending();if(typeof cvHelp==='function')cvHelp(!!cur.v.culvert_no);
   $('formStatus').textContent=cur.id?`Editing saved inspection · ${cur.v.culvert_no||''}`:'New inspection · draft saves automatically';
   $('saveBtn').textContent=cur.id?'Update inspection':'Save inspection';
 }
@@ -164,8 +166,9 @@ async function shrink(file){
 }
 async function showShot(k){
   const box=$('s-'+k),btn=$('b-'+k),pid=cur.v[k];
-  if(!pid){box.innerHTML='<span>No photo yet</span>';btn.textContent='Take photo';return}
-  btn.textContent='Retake photo';
+  const mv=$('m-'+k);if(mv)mv.hidden=!pid;
+  if(!pid){box.innerHTML='<span>Not taken yet</span>';btn.textContent='Take photo';return}
+  btn.textContent='Retake';
   try{if(!urls[pid]){const b=await getPhoto(pid);if(!b)throw 0;urls[pid]=URL.createObjectURL(b)}
     if(cur.v[k]===pid)box.innerHTML=`<img src="${urls[pid]}" alt="Photo: ${esc(FIELDS.find(f=>f.k===k).l)}">`;}
   catch(e){if(cur.v[k]===pid){cur.v[k]='';box.innerHTML='<span>Photo missing, please retake</span>';btn.textContent='Take photo';progress()}}
@@ -178,7 +181,41 @@ form.addEventListener('change',async e=>{
     await putPhoto(pid,b);cur.v[k]=pid;changed(k);store(KEY.draft,cur);showShot(k)}
   catch(err){toast('Could not store that photo. Try again.');showShot(k)}
 });
-function photoRefs(){const s=new Set(),add=v=>PHOTOS.forEach(f=>v[f.k]&&s.add(v[f.k]));records.forEach(r=>add(r.v));add(cur.v);return s}
+function photoRefs(){const s=new Set(),add=v=>PHOTOS.forEach(f=>v[f.k]&&s.add(v[f.k]));records.forEach(r=>add(r.v));add(cur.v);(cur.v.ph_pending||[]).forEach(p=>s.add(p));return s}
+/* photos can be taken in any order: take or pick them, then tap which view each one is */
+(()=>{const card=form.querySelector('.field[data-k="ph1"]').closest('section.card'),d=document.createElement('div');d.className='field phadd';
+  d.innerHTML=`<p class="fieldnote" style="margin:0 0 10px">Take the 4 photos in any order. After each one, tap which view it is.</p>
+    <div class="phbtns"><label class="btn primary" for="phCam">Take photo</label><label class="btn" for="phLib">Choose from gallery</label></div>
+    <input id="phCam" type="file" accept="image/*" capture="environment" hidden><input id="phLib" type="file" accept="image/*" multiple hidden>
+    <div id="phPending"></div>`;card.querySelector('h2').after(d)})();
+const newPid=()=>'P'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+async function addPending(files){
+  const list=[...files];if(!list.length)return;const box=$('phPending');box.insertAdjacentHTML('afterbegin','<p class="fieldnote" id="phBusy">Saving photo…</p>');
+  for(const f of list){try{const b=await shrink(f),pid=newPid();await putPhoto(pid,b);(cur.v.ph_pending=cur.v.ph_pending||[]).push(pid)}catch(e){toast('Could not store a photo. Try again.')}}
+  store(KEY.draft,cur);renderPending();
+}
+async function renderPending(){
+  const box=$('phPending'),P=cur.v.ph_pending||[];
+  if(!P.length){box.innerHTML='';return}
+  const html=[];
+  for(const pid of P){
+    try{if(!urls[pid]){const b=await getPhoto(pid);if(!b)continue;urls[pid]=URL.createObjectURL(b)}}catch(e){continue}
+    html.push(`<div class="pend"><img src="${urls[pid]}" alt="New photo"><div><p class="q" style="margin:0 0 8px">Which view is this?</p><div class="pendbtns">
+      ${PHOTOS.map(f=>`<button type="button" class="btn small" data-assign="${f.k}" data-pid="${pid}">${esc(f.l)}${cur.v[f.k]?' <span class="muted">(replace)</span>':''}</button>`).join('')}
+      <button type="button" class="btn small danger" data-discard="${pid}">Discard</button></div></div></div>`);
+  }
+  box.innerHTML=html.join('');
+}
+['phCam','phLib'].forEach(id=>$(id).addEventListener('change',e=>{const fs=e.target.files;addPending(fs).then(()=>{e.target.value=''})}));
+form.addEventListener('click',e=>{
+  const a=e.target.closest('[data-assign]'),dc=e.target.closest('[data-discard]'),mv=e.target.closest('[data-move]');
+  if(!a&&!dc&&!mv)return;
+  const P=cur.v.ph_pending=cur.v.ph_pending||[];
+  if(a){const k=a.dataset.assign,pid=a.dataset.pid;cur.v.ph_pending=P.filter(x=>x!==pid);cur.v[k]=pid;changed(k);showShot(k)}
+  if(dc){cur.v.ph_pending=P.filter(x=>x!==dc.dataset.discard)}
+  if(mv){const k=mv.dataset.move;if(cur.v[k]){P.push(cur.v[k]);cur.v[k]='';changed(k);showShot(k)}}
+  store(KEY.draft,cur);renderPending();if(dc)gc();
+});
 async function gc(){try{const refs=photoRefs();for(const k of await photoKeys())if(!refs.has(k)){await delPhoto(k);if(urls[k]){URL.revokeObjectURL(urls[k]);delete urls[k]}}}catch(e){}}
 const safe=s=>String(s||'').trim().replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'')||'culvert';
 function photoName(r,f){return `${safe(r.v.culvert_no)}_${(r.v.date||'').replace(/-/g,'')}-${(r.v.time||'').replace(':','')}_${f.n}-${safe(f.l)}.jpg`}
@@ -254,12 +291,32 @@ async function fetchCulverts(){ // small list; refreshed whenever the phone is o
     CULVERTS=s.docs.map(d=>d.data()).filter(c=>c&&c.name);store('fpi.culverts.v1',CULVERTS);cvHelp(false)}catch(e){}
 }
 const cvFor=r=>cvByName(r.linkRef)||cvByName(r.v.culvert_ref)||findCulvert(r.v.culvert_no);
+/* delete everywhere: an admin leaves a marker in "deleted"; every device removes those inspections when it syncs */
+function removeLocal(ids){
+  const set=new Set(ids),before=records.length;records=records.filter(r=>!set.has(r.id));
+  if(cur.id&&set.has(cur.id)){cur=fresh();store(KEY.draft,cur);paint()}
+  if(records.length!==before){store(KEY.recs,records);renderList();gc()}
+  return before-records.length;
+}
+async function fetchDeleted(){
+  if(!FB_READY||!fbAuth||!fbAuth.currentUser||!navigator.onLine)return new Set();
+  try{const s=await withTimeout(fdb.collection('deleted').get(),15e3),ids=s.docs.map(d=>d.id);removeLocal(ids);return new Set(ids)}catch(e){return new Set()}
+}
+async function deleteEverywhere(id){
+  if(!FB_READY||!fbAuth||!fbAuth.currentUser||!navigator.onLine)throw new Error('offline');
+  await withTimeout(fdb.collection('deleted').doc(id).set({at:new Date().toISOString(),by:auth.name}),20e3);
+  await withTimeout(fdb.collection('inspections').doc(id).delete(),20e3);
+  for(const f of PHOTOS){try{await withTimeout(fst.ref(`inspections/${id}/${f.k}.jpg`).delete(),20e3)}catch(e){}}
+  removeLocal([id]);
+}
 
 /* ---------- save / clear ---------- */
 function issues(v){
   return FIELDS.filter(f=>f.bad&&v[f.k]===f.bad).map(f=>`${f.l.replace(/\?$/,'')}: ${v[f.k]}`);
 }
 $('saveBtn').onclick=()=>{
+  if((cur.v.ph_pending||[]).length){$('phPending').scrollIntoView({behavior:'smooth',block:'center'});toast('Tap which view each new photo is (or discard it) before saving');return}
+  delete cur.v.ph_pending;
   const miss=REQ.filter(f=>!filled(f));
   form.querySelectorAll('.field.missing').forEach(x=>x.classList.remove('missing'));
   if(miss.length){
@@ -301,7 +358,8 @@ function renderList(){
       <span class="chips"><span class="chip ${iss.length?'bad':'ok'}">${iss.length?iss.length+' issue'+(iss.length>1?'s':''):'No issues'}</span>
       <span class="chip ${isSynced(r)?'cloud':'wait'}">${isSynced(r)?'In cloud ✓':'On phone only'}</span></span></div>
       ${iss.length?`<ul class="issues">${iss.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}
-      <div class="acts"><button class="btn small" data-act="edit">Edit</button><button class="btn small" data-act="del">Delete</button></div></div>`;
+      <div class="acts"><button class="btn small" data-act="edit">Edit</button><button class="btn small" data-act="del">Delete from this phone</button>
+      ${auth&&auth.role==='admin'?'<button class="btn small danger" data-act="delall">Delete everywhere</button>':''}</div></div>`;
   }).join('');
 }
 $('list').addEventListener('click',e=>{
@@ -311,7 +369,13 @@ $('list').addEventListener('click',e=>{
   if(b.dataset.act==='del'){
     if(b.dataset.armed){records=records.filter(x=>x.id!==id);store(KEY.recs,records);renderList();gc();toast(isSynced(r)?'Removed from this phone (the cloud copy is kept)':'Inspection deleted');return}
     b.dataset.armed='1';b.textContent='Confirm delete';b.classList.add('danger');
-    setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='Delete';b.classList.remove('danger')}},3000);
+    setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='Delete from this phone';b.classList.remove('danger')}},3000);
+  }
+  if(b.dataset.act==='delall'){
+    if(!b.dataset.armed){b.dataset.armed='1';b.textContent='Tap again: delete for everyone';setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='Delete everywhere'}},4000);return}
+    b.disabled=true;b.textContent='Deleting…';
+    deleteEverywhere(id).then(()=>toast('Deleted everywhere. Other devices remove it next time they sync.'))
+      .catch(err=>{toast(err.message==='offline'?'Needs a connection. Try again when you have coverage.':'Could not delete: '+(err.code||err.message));renderList()});
   }
 });
 
@@ -651,8 +715,9 @@ async function syncNow(manual){
   if(!FB_READY){if(manual)toast('Cloud not set up yet (firebase-config.js)');return}
   if(!auth||!fbAuth.currentUser){if(manual)showLogin();return}
   if(!navigator.onLine){if(manual)toast('No connection right now');syncUI();return}
+  if(!SY.busy){fetchCulverts();await fetchDeleted()} // pick up list changes and "delete everywhere" first
   if(!pending().length){if(manual)toast('Everything is uploaded');SY.lastOk=Date.now();store('fpi.lastsync.v1',SY.lastOk);syncUI();return}
-  SY.busy=true;SY.msg='';syncUI();fetchCulverts();
+  SY.busy=true;SY.msg='';syncUI();
   const find=id=>records.find(x=>x.id===id),email=fbAuth.currentUser.email;
   try{
     for(const id of pending().map(r=>r.id)){
@@ -737,12 +802,13 @@ $('cloudPull').onclick=async()=>{
   if(!auth)return showLogin();const b=$('cloudPull'),t=b.textContent;b.disabled=true;
   try{
     b.textContent='Checking…';
+    const gone=await fetchDeleted();
     const snap=await withTimeout(fdb.collection('inspections').get(),30e3);
     let added=0,i=0;
     for(const d of snap.docs){
       const it=d.data();i++;b.textContent=`Downloading ${i} of ${snap.size}…`;
       const local=records.find(r=>r.id===it.id);
-      if(!it.v)continue;
+      if(!it.v||gone.has(it.id))continue;
       if(local&&(local.updated||'')>=(it.updated||'')){if((local.linkRef||'')!==(it.culvertRef||'')){local.linkRef=it.culvertRef||'';store(KEY.recs,records)}continue}
       const v={...it.v},ph={};
       for(const f of PHOTOS){
@@ -762,13 +828,14 @@ $('cloudPull').onclick=async()=>{
 };
 if(fbAuth)fbAuth.onAuthStateChanged(u=>{ // Firebase remembers the sign-in on this phone, even offline
   if(!u&&auth&&navigator.onLine){auth=null;try{localStorage.removeItem('fpi.auth.v1')}catch(e){}}
-  syncUI();if(u){autoSync();fetchCulverts()}
+  syncUI();if(u){fetchDeleted().then(autoSync);fetchCulverts()}
 });
 window.addEventListener('online',()=>{syncUI();autoSync()});
 window.addEventListener('offline',syncUI);
 if(navigator.connection&&navigator.connection.addEventListener)navigator.connection.addEventListener('change',()=>{syncUI();autoSync()});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)autoSync()});
 setInterval(autoSync,2*60e3);
+setInterval(()=>{if(auth&&navigator.onLine)fetchDeleted()},10*60e3);
 
 /* ---------- tabs / misc ---------- */
 function show(v){
