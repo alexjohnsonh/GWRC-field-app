@@ -120,5 +120,5 @@ deletes `inspections/{id}` and its Storage photos, and removes the local copy. E
 ## Question order (Oct 2026)
 
 The form groups questions by location: WS.7 assessment, Upstream & inlet, Within the culvert, Downstream & outlet,
-Species & general notes, then the Photo log. Field keys are unchanged, so existing inspections, the cloud data and the
+Species & general notes. The two upstream photos sit in Upstream & inlet and the two downstream photos in Downstream & outlet (each pair in any order). Field keys are unchanged, so existing inspections, the cloud data and the
 GWRC (Appendix C) report are unaffected; the CSV columns follow the new order.

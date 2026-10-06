@@ -20,7 +20,9 @@ const SECTIONS=[
   {k:'inlet_cond',l:'Inlet condition',type:'choice',opts:GFP,req:1,bad:'Poor'},
   {k:'scour_in',l:'Erosion or scouring at inlet',type:'choice',opts:YN,req:1,bad:'Yes'},
   {k:'veg_in',l:'Vegetation at inlet',hint:'excluding planter pods',type:'choice',opts:YN,req:1},
-  {k:'us_tie',l:'Upstream tie-in',type:'choice',opts:PF,req:1,bad:'Fail'}]},
+  {k:'us_tie',l:'Upstream tie-in',type:'choice',opts:PF,req:1,bad:'Fail'},
+  {k:'ph1',l:'Upstream of culvert',type:'photo',req:1,half:1,n:1,g:'up'},
+  {k:'ph2',l:'Upstream end of culvert',type:'photo',req:1,half:1,n:2,g:'up'}]},
  {t:'Within the culvert',f:[
   {k:'culvert_cond',l:'Condition in culvert',type:'choice',opts:GFP,req:1,bad:'Poor'},
   {k:'vel_in',l:'Velocities in culvert',type:'choice',opts:LC,req:1},
@@ -37,15 +39,12 @@ const SECTIONS=[
   {k:'veg_out',l:'Vegetation at outlet',hint:'excluding planter pods',type:'choice',opts:YN,req:1},
   {k:'apron_channels',l:'Concrete channels on apron',type:'choice',opts:PF,req:1,bad:'Fail'},
   {k:'planter_pods',l:'Planter pods',type:'choice',opts:PF,req:1,bad:'Fail'},
-  {k:'ds_tie',l:'Downstream tie-ins',type:'choice',opts:PF,req:1,bad:'Fail'}]},
+  {k:'ds_tie',l:'Downstream tie-ins',type:'choice',opts:PF,req:1,bad:'Fail'},
+  {k:'ph3',l:'Downstream of culvert',type:'photo',req:1,half:1,n:3,g:'down'},
+  {k:'ph4',l:'Downstream end of culvert',type:'photo',req:1,half:1,n:4,g:'down'}]},
  {t:'Species & general notes',f:[
   {k:'species',l:'Species observed during inspection',hint:'What & where?',type:'textarea'},
   {k:'final_comments',l:'Other comments',csv:'General comments',type:'textarea'}]},
- {t:'Photo log',f:[
-  {k:'ph1',l:'Upstream of culvert',type:'photo',req:1,half:1,n:1},
-  {k:'ph2',l:'Upstream end of culvert',type:'photo',req:1,half:1,n:2},
-  {k:'ph3',l:'Downstream of culvert',type:'photo',req:1,half:1,n:3},
-  {k:'ph4',l:'Downstream end of culvert',type:'photo',req:1,half:1,n:4}]}
 ];
 const FIELDS=SECTIONS.flatMap(s=>s.f), REQ=FIELDS.filter(f=>f.req), PHOTOS=FIELDS.filter(f=>f.type==='photo');
 const KEY={recs:'fpi.records.v1',draft:'fpi.draft.v1',prefs:'fpi.prefs.v1'};
@@ -122,6 +121,7 @@ function paint(){
   applyRules();progress();refreshInspector();if(typeof renderPending==='function')renderPending();if(typeof cvHelp==='function')cvHelp(!!cur.v.culvert_no);
   $('formStatus').textContent=cur.id?`Editing saved inspection · ${cur.v.culvert_no||''}`:'New inspection · draft saves automatically';
   $('saveBtn').textContent=cur.id?'Update inspection':'Save inspection';
+  $('saveBtn2').textContent=$('saveBtn').textContent;
 }
 function applyRules(){
   // "If so, are remedial works required?" only applies when erosion = Yes
@@ -181,40 +181,51 @@ form.addEventListener('change',async e=>{
     await putPhoto(pid,b);cur.v[k]=pid;changed(k);store(KEY.draft,cur);showShot(k)}
   catch(err){toast('Could not store that photo. Try again.');showShot(k)}
 });
-function photoRefs(){const s=new Set(),add=v=>PHOTOS.forEach(f=>v[f.k]&&s.add(v[f.k]));records.forEach(r=>add(r.v));add(cur.v);(cur.v.ph_pending||[]).forEach(p=>s.add(p));return s}
-/* photos can be taken in any order: take or pick them, then tap which view each one is */
-(()=>{const card=form.querySelector('.field[data-k="ph1"]').closest('section.card'),d=document.createElement('div');d.className='field phadd';
-  d.innerHTML=`<p class="fieldnote" style="margin:0 0 10px">Take the 4 photos in any order. After each one, tap which view it is.</p>
-    <div class="phbtns"><label class="btn primary" for="phCam">Take photo</label><label class="btn" for="phLib">Choose from gallery</label></div>
-    <input id="phCam" type="file" accept="image/*" capture="environment" hidden><input id="phLib" type="file" accept="image/*" multiple hidden>
-    <div id="phPending"></div>`;card.querySelector('h2').after(d)})();
+const PGROUPS=[{g:'up',name:'Upstream'},{g:'down',name:'Downstream'}];
+const pendList=()=>(cur.v.ph_pending||[]).map(x=>typeof x==='string'?{pid:x,g:'up'}:x); // older drafts stored plain ids
+function photoRefs(){const s=new Set(),add=v=>PHOTOS.forEach(f=>v[f.k]&&s.add(v[f.k]));records.forEach(r=>add(r.v));add(cur.v);pendList().forEach(p=>s.add(p.pid));return s}
+/* photos sit in their own section (2 upstream, 2 downstream) and can be taken in any order:
+   take or pick them, then tap which view each one is */
+PGROUPS.forEach(({g,name})=>{
+  const first=form.querySelector(`.field[data-k="${PHOTOS.find(f=>f.g===g).k}"]`),anchor=first.parentElement.classList.contains('row2')?first.parentElement:first;
+  const d=document.createElement('div');d.className='field phadd';d.dataset.g=g;
+  d.innerHTML=`<p class="q" style="margin:0 0 4px">${name} photos</p>
+    <p class="fieldnote" style="margin:0 0 10px">Take the 2 ${name.toLowerCase()} photos in any order. After each one, tap which view it is.</p>
+    <div class="phbtns"><label class="btn primary" for="phCam-${g}">Take photo</label><label class="btn" for="phLib-${g}">Choose from gallery</label></div>
+    <input id="phCam-${g}" data-g="${g}" class="phin" type="file" accept="image/*" capture="environment" hidden>
+    <input id="phLib-${g}" data-g="${g}" class="phin" type="file" accept="image/*" multiple hidden>
+    <div id="phPending-${g}"></div>`;
+  anchor.before(d);
+});
 const newPid=()=>'P'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
-async function addPending(files){
-  const list=[...files];if(!list.length)return;const box=$('phPending');box.insertAdjacentHTML('afterbegin','<p class="fieldnote" id="phBusy">Saving photo…</p>');
-  for(const f of list){try{const b=await shrink(f),pid=newPid();await putPhoto(pid,b);(cur.v.ph_pending=cur.v.ph_pending||[]).push(pid)}catch(e){toast('Could not store a photo. Try again.')}}
-  store(KEY.draft,cur);renderPending();
+async function addPending(files,g){
+  const list=[...files];if(!list.length)return;$('phPending-'+g).insertAdjacentHTML('afterbegin','<p class="fieldnote">Saving photo…</p>');
+  const P=pendList();
+  for(const f of list){try{const b=await shrink(f),pid=newPid();await putPhoto(pid,b);P.push({pid,g})}catch(e){toast('Could not store a photo. Try again.')}}
+  cur.v.ph_pending=P;store(KEY.draft,cur);renderPending();
 }
 async function renderPending(){
-  const box=$('phPending'),P=cur.v.ph_pending||[];
-  if(!P.length){box.innerHTML='';return}
-  const html=[];
-  for(const pid of P){
-    try{if(!urls[pid]){const b=await getPhoto(pid);if(!b)continue;urls[pid]=URL.createObjectURL(b)}}catch(e){continue}
-    html.push(`<div class="pend"><img src="${urls[pid]}" alt="New photo"><div><p class="q" style="margin:0 0 8px">Which view is this?</p><div class="pendbtns">
-      ${PHOTOS.map(f=>`<button type="button" class="btn small" data-assign="${f.k}" data-pid="${pid}">${esc(f.l)}${cur.v[f.k]?' <span class="muted">(replace)</span>':''}</button>`).join('')}
-      <button type="button" class="btn small danger" data-discard="${pid}">Discard</button></div></div></div>`);
+  const P=pendList();
+  for(const {g} of PGROUPS){
+    const box=$('phPending-'+g),html=[];
+    for(const {pid} of P.filter(x=>x.g===g)){
+      try{if(!urls[pid]){const b=await getPhoto(pid);if(!b)continue;urls[pid]=URL.createObjectURL(b)}}catch(e){continue}
+      html.push(`<div class="pend"><img src="${urls[pid]}" alt="New photo"><div><p class="q" style="margin:0 0 8px">Which view is this?</p><div class="pendbtns">
+        ${PHOTOS.filter(f=>f.g===g).map(f=>`<button type="button" class="btn small" data-assign="${f.k}" data-pid="${pid}">${esc(f.l)}${cur.v[f.k]?' <span class="muted">(replace)</span>':''}</button>`).join('')}
+        <button type="button" class="btn small danger" data-discard="${pid}">Discard</button></div></div></div>`);
+    }
+    box.innerHTML=html.join('');
   }
-  box.innerHTML=html.join('');
 }
-['phCam','phLib'].forEach(id=>$(id).addEventListener('change',e=>{const fs=e.target.files;addPending(fs).then(()=>{e.target.value=''})}));
+form.addEventListener('change',e=>{if(!e.target.classList.contains('phin'))return;const el=e.target;addPending(el.files,el.dataset.g).then(()=>{el.value=''})});
 form.addEventListener('click',e=>{
   const a=e.target.closest('[data-assign]'),dc=e.target.closest('[data-discard]'),mv=e.target.closest('[data-move]');
   if(!a&&!dc&&!mv)return;
-  const P=cur.v.ph_pending=cur.v.ph_pending||[];
-  if(a){const k=a.dataset.assign,pid=a.dataset.pid;cur.v.ph_pending=P.filter(x=>x!==pid);cur.v[k]=pid;changed(k);showShot(k)}
-  if(dc){cur.v.ph_pending=P.filter(x=>x!==dc.dataset.discard)}
-  if(mv){const k=mv.dataset.move;if(cur.v[k]){P.push(cur.v[k]);cur.v[k]='';changed(k);showShot(k)}}
-  store(KEY.draft,cur);renderPending();if(dc)gc();
+  let P=pendList();
+  if(a){const k=a.dataset.assign,pid=a.dataset.pid;P=P.filter(x=>x.pid!==pid);cur.v[k]=pid;changed(k);showShot(k)}
+  if(dc){P=P.filter(x=>x.pid!==dc.dataset.discard)}
+  if(mv){const k=mv.dataset.move,f=PHOTOS.find(x=>x.k===k);if(cur.v[k]){P.push({pid:cur.v[k],g:f.g});cur.v[k]='';changed(k);showShot(k)}}
+  cur.v.ph_pending=P;store(KEY.draft,cur);renderPending();if(dc)gc();
 });
 async function gc(){try{const refs=photoRefs();for(const k of await photoKeys())if(!refs.has(k)){await delPhoto(k);if(urls[k]){URL.revokeObjectURL(urls[k]);delete urls[k]}}}catch(e){}}
 const safe=s=>String(s||'').trim().replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'')||'culvert';
@@ -315,7 +326,7 @@ function issues(v){
   return FIELDS.filter(f=>f.bad&&v[f.k]===f.bad).map(f=>`${f.l.replace(/\?$/,'')}: ${v[f.k]}`);
 }
 $('saveBtn').onclick=()=>{
-  if((cur.v.ph_pending||[]).length){$('phPending').scrollIntoView({behavior:'smooth',block:'center'});toast('Tap which view each new photo is (or discard it) before saving');return}
+  {const P=pendList();if(P.length){$('phPending-'+P[0].g).scrollIntoView({behavior:'smooth',block:'center'});toast('Tap which view each new photo is (or discard it) before saving');return}}
   delete cur.v.ph_pending;
   const miss=REQ.filter(f=>!filled(f));
   form.querySelectorAll('.field.missing').forEach(x=>x.classList.remove('missing'));
@@ -335,6 +346,7 @@ $('saveBtn').onclick=()=>{
   const no=cur.v.culvert_no;cur=fresh();store(KEY.draft,cur);paint();window.scrollTo(0,0);
   renderList();gc();toast(`Saved ${no}`);if(typeof autoSync==='function')setTimeout(autoSync,800);
 };
+$('saveBtn2').onclick=()=>$('saveBtn').click(); // second Save at the end of the form, in case the bottom bar is hidden on a device
 let clearArm=0;
 $('clearBtn').onclick=()=>{
   const b=$('clearBtn');

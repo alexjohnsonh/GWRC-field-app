@@ -1,6 +1,6 @@
 // Caches the app so it opens with no coverage.
 // Bump VERSION whenever you change any app file, so phones pick up the new copy.
-const VERSION = 'fpi-v11';
+const VERSION = 'fpi-v13';
 const FILES = ['./', './index.html', './app.js', './jspdf.umd.min.js', './firebase-config.js',
   './firebase-app-compat.js', './firebase-auth-compat.js', './firebase-firestore-compat.js', './firebase-storage-compat.js',
   './manifest.webmanifest', './icon-192.png', './icon-512.png'];
