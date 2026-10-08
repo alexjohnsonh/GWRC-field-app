@@ -122,3 +122,17 @@ deletes `inspections/{id}` and its Storage photos, and removes the local copy. E
 The form groups questions by location: WS.7 assessment, Upstream & inlet, Within the culvert, Downstream & outlet,
 Species & general notes. The two upstream photos sit in Upstream & inlet and the two downstream photos in Downstream & outlet (each pair in any order). Field keys are unchanged, so existing inspections, the cloud data and the
 GWRC (Appendix C) report are unaffected; the CSV columns follow the new order.
+
+## Sightings (partial saves, several visits or people)
+
+- **Save as incomplete** saves whatever is done (needs only culvert no., inspector, date, time) and uploads it.
+- Every save is a *contribution*. Contributions for the same culvert (matched culvert from the list, else the typed
+  number) within **7 days** of the first one form one **sighting**. Grouping is calculated, nothing extra is stored.
+- Merge: for each question the newest answer (by inspection date/time) is used; comments are combined; photos per view.
+  If contributions disagree, the sighting shows "answers differ" and the office can tap the right value. That choice is
+  saved as a small contribution with `office_fix: true`, which then counts as the newest answer.
+- Phones download everyone's answers (not photos) when they sync, to show sighting status and "Already answered" hints.
+  **Save inspection** succeeds when the sighting as a whole has everything.
+- The Saved tab, CSV (one row per sighting, with Status / Still needed / Answers differ / Visits columns) and the GWRC
+  report all work per sighting. Incomplete sightings are included in the report and marked INCOMPLETE.
+- The report and CSV use what is on this device: tap "Get everyone's inspections" first.

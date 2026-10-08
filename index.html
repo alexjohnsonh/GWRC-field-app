@@ -134,6 +134,22 @@ select{width:100%;font:16px var(--f-ui);color:var(--ink);background:var(--bg);bo
 .shotbtns{display:flex;flex-direction:column;gap:6px;margin-top:8px}.shotbtns .shotbtn{margin-top:0}
 @media (max-width:420px){.pend{grid-template-columns:1fr}.pend img{width:100%;height:auto;max-height:180px}}
 .muted{color:var(--muted)}
+.endsave{display:flex;gap:8px;margin-top:4px}.endsave .btn{flex:1;min-height:52px}.endsave .primary{flex:1.4}
+#saveInc{font-size:14px;padding:8px 10px;line-height:1.15}
+.listhead{font-size:13px;text-transform:uppercase;letter-spacing:.07em;color:var(--accent);margin:4px 0 6px}
+.sight .needs{margin:8px 0 0;font-size:14px;color:var(--warn);font-weight:600}
+.confl{margin-top:10px;padding:10px;border-radius:8px;background:var(--bad-soft)}
+.confl ul{margin:0;padding-left:18px;font-size:14px}.confl li{margin-bottom:8px}
+.confl .opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.chip.other{color:var(--muted);border:1px solid currentColor}.chip.warnchip{color:var(--warn);border:1px solid currentColor}
+.contribs{margin-top:10px}.contribs summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--muted)}
+.contribs ul{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:8px}
+.contrib{border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.contrib .ctop{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:14px;flex-wrap:wrap}
+.contrib .cmeta{font-size:13px;color:var(--muted);margin-top:2px}.contrib .acts{margin-top:8px}
+.sight>.btn{margin-top:10px}
+.prevans{margin:8px 0 0;font-size:13px;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:6px 8px}
+.sightnote{margin-top:10px;font-size:14px;background:var(--accent-soft);border-left:3px solid var(--accent);border-radius:6px;padding:8px 10px}
 .fine{font-size:12px;color:var(--muted);margin-top:18px;line-height:1.5}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -155,7 +171,8 @@ select{width:100%;font:16px var(--f-ui);color:var(--ink);background:var(--bg);bo
   <div id="view-form">
     <p class="status" id="formStatus">New inspection · draft saves automatically</p>
     <form id="form" novalidate></form>
-    <button class="btn primary" id="saveBtn2" type="button" style="width:100%;margin-top:4px;min-height:52px">Save inspection</button>
+    <div class="endsave"><button class="btn" id="saveInc2" type="button">Save as incomplete</button><button class="btn primary" id="saveBtn2" type="button">Save inspection</button></div>
+    <p class="fine" style="margin-top:8px">Not finished? <b>Save as incomplete</b> keeps what you have. You, or anyone else, can add the rest within 7 days and it is combined into one sighting for this culvert.</p>
   </div>
 
   <div id="view-list" hidden>
@@ -212,6 +229,7 @@ select{width:100%;font:16px var(--f-ui);color:var(--ink);background:var(--bg);bo
 <div class="bar" id="formBar">
   <div class="in">
     <button class="btn" id="clearBtn" type="button">Clear</button>
+    <button class="btn" id="saveInc" type="button">Save as incomplete</button>
     <button class="btn primary" id="saveBtn" type="button">Save inspection</button>
   </div>
 </div>

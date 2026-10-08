@@ -118,7 +118,7 @@ function paint(){
     }else if(f.type==='photo'){showShot(f.k)}
     else{const el=$('f-'+f.k);if(el.value!==String(v))el.value=v}
   });
-  applyRules();progress();refreshInspector();if(typeof renderPending==='function')renderPending();if(typeof cvHelp==='function')cvHelp(!!cur.v.culvert_no);
+  applyRules();progress();refreshInspector();if(typeof hintsSoon==='function')hintsSoon();if(typeof renderPending==='function')renderPending();if(typeof cvHelp==='function')cvHelp(!!cur.v.culvert_no);
   $('formStatus').textContent=cur.id?`Editing saved inspection · ${cur.v.culvert_no||''}`:'New inspection · draft saves automatically';
   $('saveBtn').textContent=cur.id?'Update inspection':'Save inspection';
   $('saveBtn2').textContent=$('saveBtn').textContent;
@@ -305,6 +305,7 @@ const cvFor=r=>cvByName(r.linkRef)||cvByName(r.v.culvert_ref)||findCulvert(r.v.c
 /* delete everywhere: an admin leaves a marker in "deleted"; every device removes those inspections when it syncs */
 function removeLocal(ids){
   const set=new Set(ids),before=records.length;records=records.filter(r=>!set.has(r.id));
+  if(typeof CLOUDIDX!=='undefined'&&CLOUDIDX.some(c=>set.has(c.id))){CLOUDIDX=CLOUDIDX.filter(c=>!set.has(c.id));store('fpi.cloudidx.v1',CLOUDIDX);renderList()}
   if(cur.id&&set.has(cur.id)){cur=fresh();store(KEY.draft,cur);paint()}
   if(records.length!==before){store(KEY.recs,records);renderList();gc()}
   return before-records.length;
@@ -321,21 +322,128 @@ async function deleteEverywhere(id){
   removeLocal([id]);
 }
 
+/* ---------- sightings ----------
+   Every save is a "contribution". Contributions for the same culvert within 7 days of the first one form one sighting.
+   For each question the newest answer is used; if contributions disagree the sighting is flagged so the office can choose.
+   Office choices are saved as small "office correction" contributions, which then count as the newest answer. */
+const SIGHT_DAYS=7;
+let CLOUDIDX=load('fpi.cloudidx.v1',[]); // answers (no photos) of everyone's uploaded contributions, for status and hints
+const MERGE_SKIP=new Set(['culvert_no','culvert_ref','inspector','date','time','location','location_acc']);
+const isFilledVal=x=>x!==undefined&&x!==null&&String(x).trim()!=='';
+const sKey=r=>ckeyFull(r.linkRef||r.v.culvert_ref||r.v.culvert_no);
+const sOrder=r=>(r.v.date||'')+'T'+(r.v.time||'')+'|'+(r.updated||'');
+const dShort=d=>{if(!d)return'';const[y,m,dd]=d.split('-');return `${dd}/${m}`};
+const whoOf=r=>`${r.v.office_fix?'office: ':''}${r.v.inspector||r.by||'someone'}${r.v.date?' '+dShort(r.v.date):''}`;
+function allContribs(){const ids=new Set(records.map(r=>r.id));return records.concat(CLOUDIDX.filter(c=>!ids.has(c.id)))}
+function groupSightings(list){
+  const by={};
+  list.filter(r=>r&&r.v&&isFilledVal(r.v.culvert_no)).forEach(r=>{const k=sKey(r);(by[k]=by[k]||[]).push(r)});
+  const out=[];
+  for(const k in by){
+    let cur=null;
+    for(const r of by[k].sort((a,b)=>sOrder(a).localeCompare(sOrder(b)))){
+      const d=r.v.date||'';
+      if(!cur||(d&&cur.anchor&&(Date.parse(d)-Date.parse(cur.anchor))/864e5>SIGHT_DAYS)){cur={key:k,anchor:d,items:[]};out.push(cur)}
+      if(!cur.anchor&&d)cur.anchor=d;
+      cur.items.push(r);
+    }
+  }
+  return out.map(mergeSighting).sort((a,b)=>(b.v.date||'').localeCompare(a.v.date||'')||a.v.culvert_no.localeCompare(b.v.culvert_no,undefined,{numeric:true}));
+}
+function mergeSighting(g){
+  const items=g.items,field=items.filter(r=>!r.v.office_fix),v={},conflicts=[];
+  for(const f of FIELDS){
+    const k=f.k;if(MERGE_SKIP.has(k))continue;
+    if(f.type==='textarea'){ // comments are combined, not replaced
+      const parts=items.filter(r=>isFilledVal(r.v[k])).map(r=>String(r.v[k]).trim()+(items.length>1?` (${whoOf(r)})`:''));
+      v[k]=parts.join('\n');continue;
+    }
+    const by=items.filter(r=>isFilledVal(r.v[k]));
+    if(!by.length){v[k]='';continue}
+    const top=by[by.length-1];v[k]=top.v[k];
+    if(f.type!=='photo'&&!top.v.office_fix&&new Set(by.map(r=>String(r.v[k]))).size>1)
+      conflicts.push({k,label:f.csv||f.l,used:top.v[k],options:by.map(r=>({val:r.v[k],who:whoOf(r)}))});
+  }
+  const newest=items[items.length-1],linked=items.map(r=>r.linkRef).filter(Boolean).pop()||'';
+  const c=cvByName(linked)||cvByName(items.map(r=>r.v.culvert_ref).filter(Boolean).pop())||findCulvert(newest.v.culvert_no);
+  v.culvert_no=c?c.name:newest.v.culvert_no;v.culvert_ref=c?c.name:'';
+  v.inspector=[...new Set(field.map(r=>(r.v.inspector||r.by||'').trim()).filter(Boolean))].join(', ');
+  const first=field[0]||items[0];v.date=g.anchor||first.v.date||'';v.time=first.v.time||'';
+  const loc=[...items].reverse().find(r=>isFilledVal(r.v.location));v.location=loc?loc.v.location:'';v.location_acc=loc?loc.v.location_acc||'':'';
+  const missing=REQ.filter(f=>!isFilledVal(v[f.k]));
+  const dates=[...new Set(field.map(r=>r.v.date).filter(Boolean))].sort();
+  return{id:'S-'+g.key+'-'+(g.anchor||'x'),key:g.key,saved:items[0].saved,updated:newest.updated,v,linkRef:linked,
+    s:{items,field,conflicts,missing,complete:!missing.length,dates,
+       contributors:field.map(r=>({id:r.id,who:r.v.inspector||r.by||'?',date:r.v.date,time:r.v.time,local:records.some(x=>x.id===r.id)}))}};
+}
+const sightings=()=>groupSightings(allContribs());
+const sightingsLocal=()=>groupSightings(records); // for exports and the report (needs the photos on this device)
+const shortList=fs=>{const q=fs.filter(f=>f.type!=='photo').length,p=fs.filter(f=>f.type==='photo').length;
+  return [q?`${q} question${q>1?'s':''}`:'',p?`${p} photo${p>1?'s':''}`:''].filter(Boolean).join(' and ')};
+// the sighting the form being filled in would join (with the form's answers included)
+function formSighting(){
+  if(!isFilledVal(cur.v.culvert_no))return null;
+  const me={id:'__form',saved:'',updated:'9999',v:{...cur.v}};
+  const S=groupSightings(allContribs().filter(r=>r.id!==cur.id).concat([me]));
+  return S.find(s=>s.s.items.some(r=>r.id==='__form'))||null;
+}
+function renderHints(){
+  form.querySelectorAll('.prevans').forEach(x=>x.remove());
+  const note=$('sightNote');if(!note)return;
+  const S=formSighting(),others=S?S.s.items.filter(r=>r.id!=='__form'):[];
+  if(!S||!others.length){note.hidden=true;return}
+  const need=S.s.missing;
+  note.hidden=false;
+  note.innerHTML=`<b>Adds to the sighting started ${fmtDate(S.v.date)}</b> by ${esc([...new Set(S.s.field.filter(r=>r.id!=='__form').map(r=>r.v.inspector||r.by))].join(', '))}. `+
+    (need.length?`Still needed: ${shortList(need)}. Answers already given are shown under each question.`:'Everything needed is now covered.');
+  for(const f of FIELDS){
+    if(MERGE_SKIP.has(f.k))continue;
+    const by=others.filter(r=>isFilledVal(r.v[f.k]));if(!by.length)continue;
+    const top=by[by.length-1],el=form.querySelector(`.field[data-k="${f.k}"]`);if(!el)continue;
+    const p=document.createElement('p');p.className='prevans';
+    p.innerHTML=f.type==='photo'?`Already taken (${esc(whoOf(top))})`:
+      f.type==='textarea'?`Already noted: “${esc(String(top.v[f.k]).slice(0,80))}” (${esc(whoOf(top))})`:
+      `Already answered: <b>${esc(top.v[f.k])}</b>${f.unit?' '+f.unit:''} (${esc(whoOf(top))})`;
+    el.appendChild(p);
+  }
+}
+let hintT;const hintsSoon=()=>{clearTimeout(hintT);hintT=setTimeout(renderHints,150)};
+(()=>{const f=form.querySelector('.field[data-k="culvert_no"]'),d=document.createElement('div');d.id='sightNote';d.className='sightnote';d.hidden=true;f.appendChild(d)})();
+form.addEventListener('input',e=>{if(['culvert_no','date'].includes(e.target.dataset.k))hintsSoon()});
+form.addEventListener('click',e=>{if(e.target.closest('.cvchip'))hintsSoon()});
+// office: choose which answer to use when contributions disagree
+function officeChoose(sid,k,val){
+  const S=sightings().find(x=>x.id===sid);if(!S)return;
+  const newest=S.s.items[S.s.items.length-1],stamp=new Date().toISOString();
+  records.unshift({id:'FPI-'+Date.now().toString(36).toUpperCase(),saved:stamp,updated:stamp,
+    v:{culvert_no:S.v.culvert_no,culvert_ref:S.v.culvert_ref,date:newest.v.date,time:newest.v.time,
+       inspector:(auth&&auth.name)||prefs.inspector||'Office',office_fix:true,[k]:val}});
+  store(KEY.recs,records);renderList();toast('Answer chosen. It uploads with the next sync.');
+  if(typeof autoSync==='function')setTimeout(autoSync,500);
+}
+async function fetchCloudIndex(){
+  if(!FB_READY||!fbAuth||!fbAuth.currentUser||!navigator.onLine)return;
+  try{
+    const s=await withTimeout(fdb.collection('inspections').get(),30e3);
+    CLOUDIDX=s.docs.map(d=>{const x=d.data();return x&&x.v?{id:x.id||d.id,saved:x.saved,updated:x.updated,v:x.v,by:x.uploadedByName,linkRef:x.culvertRef||'',cloud:true}:null}).filter(Boolean);
+    store('fpi.cloudidx.v1',CLOUDIDX);renderList();hintsSoon();
+  }catch(e){}
+}
+
 /* ---------- save / clear ---------- */
 function issues(v){
   return FIELDS.filter(f=>f.bad&&v[f.k]===f.bad).map(f=>`${f.l.replace(/\?$/,'')}: ${v[f.k]}`);
 }
-$('saveBtn').onclick=()=>{
+function doSave(partial){
   {const P=pendList();if(P.length){$('phPending-'+P[0].g).scrollIntoView({behavior:'smooth',block:'center'});toast('Tap which view each new photo is (or discard it) before saving');return}}
   delete cur.v.ph_pending;
-  const miss=REQ.filter(f=>!filled(f));
   form.querySelectorAll('.field.missing').forEach(x=>x.classList.remove('missing'));
-  if(miss.length){
-    miss.forEach(f=>form.querySelector(`.field[data-k="${f.k}"]`).classList.add('missing'));
-    const first=form.querySelector(`.field[data-k="${miss[0].k}"]`);
-    first.scrollIntoView({behavior:'smooth',block:'center'});
-    toast(`${miss.length} required field${miss.length>1?'s':''} still to fill`);return;
-  }
+  const mark=fs=>{fs.forEach(f=>{const el=form.querySelector(`.field[data-k="${f.k}"]`);if(el)el.classList.add('missing')});
+    const el=form.querySelector(`.field[data-k="${fs[0].k}"]`);if(el)el.scrollIntoView({behavior:'smooth',block:'center'})};
+  const basics=['culvert_no','inspector','date','time'].map(k=>FIELDS.find(f=>f.k===k)).filter(f=>!filled(f));
+  if(basics.length){mark(basics);toast('Fill in the culvert number, your name, date and time first');return}
+  const S=formSighting(),need=S?S.s.missing:REQ.filter(f=>!filled(f));
+  if(!partial&&need.length){mark(need);toast(`${shortList(need)} still needed for this culvert. Fill them in, or tap "Save as incomplete".`);return}
   cur.v.culvert_no=String(cur.v.culvert_no).trim().replace(/\s+/g,' ').toUpperCase(); // tidy for matching at the office
   {const m=findCulvert(cur.v.culvert_no);cur.v.culvert_ref=m?m.name:''} // link to the list; blank = flagged for the office
   const stamp=new Date().toISOString();
@@ -344,8 +452,13 @@ $('saveBtn').onclick=()=>{
   if(!store(KEY.recs,records)){toast('Could not save: storage blocked');return}
   if(!cur.id||records[0]&&records[0].id===cur.id){prefs.inspector=(cur.v.inspector||'').trim();store(KEY.prefs,prefs)}
   const no=cur.v.culvert_no;cur=fresh();store(KEY.draft,cur);paint();window.scrollTo(0,0);
-  renderList();gc();toast(`Saved ${no}`);if(typeof autoSync==='function')setTimeout(autoSync,800);
-};
+  renderList();gc();
+  toast(need.length?`Saved ${no}. This sighting still needs ${shortList(need)}.`:`Saved ${no}. Sighting complete ✓`);
+  if(typeof autoSync==='function')setTimeout(autoSync,800);
+}
+$('saveBtn').onclick=()=>doSave(false);
+$('saveInc').onclick=()=>doSave(true);
+$('saveInc2').onclick=()=>doSave(true);
 $('saveBtn2').onclick=()=>$('saveBtn').click(); // second Save at the end of the form, in case the bottom bar is hidden on a device
 let clearArm=0;
 $('clearBtn').onclick=()=>{
@@ -360,26 +473,49 @@ function fmtDate(d){if(!d)return'';const[y,m,dd]=d.split('-');return `${dd}/${m}
 function renderList(){
   if(typeof renderReport==='function')setTimeout(renderReport,0);
   if(typeof syncUI==='function')setTimeout(()=>{try{syncUI()}catch(e){}},0);
-  $('count').textContent=`(${records.length})`;
+  const SS=sightings();
+  $('count').textContent=`(${SS.length})`;
   const L=$('list');
-  if(!records.length){L.innerHTML='<div class="empty">No saved inspections yet.<br>Fill in the Inspection tab and tap Save.</div>';return}
-  L.innerHTML=records.map(r=>{
-    const iss=issues(r.v);
-    return `<div class="rec" data-id="${r.id}"><div class="top"><div><h3>${esc(r.v.culvert_no)}</h3>
-      <div class="meta">${fmtDate(r.v.date)} ${esc(r.v.time)} · ${esc(r.v.inspector)} · ${esc(r.v.weather)} · ${PHOTOS.filter(f=>r.v[f.k]).length}/4 photos</div></div>
-      <span class="chips"><span class="chip ${iss.length?'bad':'ok'}">${iss.length?iss.length+' issue'+(iss.length>1?'s':''):'No issues'}</span>
-      <span class="chip ${isSynced(r)?'cloud':'wait'}">${isSynced(r)?'In cloud ✓':'On phone only'}</span></span></div>
-      ${iss.length?`<ul class="issues">${iss.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`:''}
-      <div class="acts"><button class="btn small" data-act="edit">Edit</button><button class="btn small" data-act="del">Delete from this phone</button>
-      ${auth&&auth.role==='admin'?'<button class="btn small danger" data-act="delall">Delete everywhere</button>':''}</div></div>`;
+  if(!SS.length){L.innerHTML='<div class="empty">No saved inspections yet.<br>Fill in the Inspection tab and tap Save.</div>';return}
+  const admin=auth&&auth.role==='admin';
+  L.innerHTML='<h2 class="listhead">Sightings</h2><p class="fieldnote" style="margin:-4px 0 10px">Everything saved for the same culvert within 7 days is combined into one sighting.</p>'+SS.map(S=>{
+    const iss=issues(S.v),x=S.s,dates=x.dates.map(fmtDate);
+    const range=dates.length>1?`${dates[0]} – ${dates[dates.length-1]}`:(dates[0]||'');
+    const contrib=x.items.map(r=>{
+      const local=records.find(q=>q.id===r.id),answers=FIELDS.filter(f=>!MERGE_SKIP.has(f.k)&&f.type!=='photo'&&isFilledVal(r.v[f.k])).length,
+        photos=PHOTOS.filter(f=>isFilledVal(r.v[f.k])).length;
+      const st=local?(isSynced(local)?'<span class="chip cloud">In cloud ✓</span>':'<span class="chip wait">On phone only</span>'):'<span class="chip other">From another device</span>';
+      const what=r.v.office_fix?`Office choice: ${esc(Object.keys(r.v).filter(k=>!['culvert_no','culvert_ref','date','time','inspector','office_fix'].includes(k)).map(k=>(FIELDS.find(f=>f.k===k)||{l:k}).l+' = '+r.v[k]).join(', '))}`:`${answers} answer${answers===1?'':'s'}, ${photos} photo${photos===1?'':'s'}`;
+      return `<li class="contrib" data-id="${esc(r.id)}"><div class="ctop"><span><b>${esc(r.v.inspector||r.by||'?')}</b> · ${fmtDate(r.v.date)} ${esc(r.v.time||'')}</span>${st}</div>
+        <div class="cmeta">${what}</div>
+        <div class="acts">${local&&!r.v.office_fix?'<button class="btn small" data-act="edit">Edit</button>':''}${local?'<button class="btn small" data-act="del">Delete from this phone</button>':''}
+        ${admin&&(!local||isSynced(local))?'<button class="btn small danger" data-act="delall">Delete everywhere</button>':''}</div></li>`}).join('');
+    const confl=x.conflicts.map(c=>`<li><b>${esc(c.label.replace(/\?$/,''))}</b>: using <b>${esc(c.used)}</b> (newest). Choose:
+      <span class="opts">${[...new Map(c.options.map(o=>[String(o.val),o])).values()].map(o=>`<button class="btn small" data-choose="${esc(c.k)}" data-val="${esc(o.val)}">${esc(o.val)} <span class="muted">(${esc(o.who)})</span></button>`).join('')}</span></li>`).join('');
+    return `<div class="rec sight" data-sid="${esc(S.id)}"><div class="top"><div><h3>${esc(S.v.culvert_no)}</h3>
+      <div class="meta">${range} · ${esc(S.v.inspector)} · ${x.field.length} visit${x.field.length===1?'':'s'} · ${PHOTOS.filter(f=>isFilledVal(S.v[f.k])).length}/4 photos</div></div>
+      <span class="chips"><span class="chip ${x.complete?'ok':'wait'}">${x.complete?'Complete ✓':'Incomplete'}</span>
+      ${iss.length?`<span class="chip bad">${iss.length} issue${iss.length>1?'s':''}</span>`:''}
+      ${x.conflicts.length?`<span class="chip warnchip">${x.conflicts.length} answer${x.conflicts.length>1?'s differ':' differs'}</span>`:''}</span></div>
+      ${x.complete?'':`<p class="needs">Still needed: ${esc(shortList(x.missing))}<span class="muted"> (${esc(x.missing.slice(0,6).map(f=>f.l.replace(/\?$/,'')).join(', '))}${x.missing.length>6?', …':''})</span></p>`}
+      ${iss.length?`<ul class="issues">${iss.map(t=>`<li>${esc(t)}</li>`).join('')}</ul>`:''}
+      ${confl?`<div class="confl"><p class="q" style="margin:0 0 6px">Answers differ between visits</p><ul>${confl}</ul></div>`:''}
+      <details class="contribs"${x.items.length>1?'':' open'}><summary>Visits (${x.items.length})</summary><ul>${contrib}</ul></details>
+      ${x.complete?'':'<button class="btn small primary" data-act="add">Add to this sighting</button>'}</div>`;
   }).join('');
 }
 $('list').addEventListener('click',e=>{
+  const ch=e.target.closest('button[data-choose]');
+  if(ch){officeChoose(ch.closest('.sight').dataset.sid,ch.dataset.choose,ch.dataset.val);return}
   const b=e.target.closest('button[data-act]');if(!b)return;
-  const id=b.closest('.rec').dataset.id, r=records.find(x=>x.id===id);
-  if(b.dataset.act==='edit'){cur={id:r.id,v:{...r.v}};store(KEY.draft,cur);paint();show('form');window.scrollTo(0,0)}
-  if(b.dataset.act==='del'){
-    if(b.dataset.armed){records=records.filter(x=>x.id!==id);store(KEY.recs,records);renderList();gc();toast(isSynced(r)?'Removed from this phone (the cloud copy is kept)':'Inspection deleted');return}
+  if(b.dataset.act==='add'){
+    const S=sightings().find(x=>x.id===b.closest('.sight').dataset.sid);if(!S)return;
+    cur=fresh();cur.v.culvert_no=S.v.culvert_no;store(KEY.draft,cur);paint();show('form');window.scrollTo(0,0);hintsSoon();return;
+  }
+  const id=b.closest('.contrib').dataset.id, r=records.find(x=>x.id===id);
+  if(b.dataset.act==='edit'&&r){cur={id:r.id,v:{...r.v}};store(KEY.draft,cur);paint();show('form');window.scrollTo(0,0)}
+  if(b.dataset.act==='del'&&r){
+    if(b.dataset.armed){records=records.filter(x=>x.id!==id);store(KEY.recs,records);renderList();gc();toast(isSynced(r)?'Removed from this phone (the cloud copy is kept)':'Deleted');return}
     b.dataset.armed='1';b.textContent='Confirm delete';b.classList.add('danger');
     setTimeout(()=>{if(b.isConnected){delete b.dataset.armed;b.textContent='Delete from this phone';b.classList.remove('danger')}},3000);
   }
@@ -397,9 +533,13 @@ function csv(){
   const col=f=>[f.type==='photo'?`Photo ${f.n}: ${f.l}`:(f.csv||f.l)+(f.unit?` (${f.unit})`:''),r=>f.type==='photo'?(r.v[f.k]?photoName(r,f):''):f.k==='date'?fmtDate(r.v.date):r.v[f.k]];
   const cols=[col(FIELDS[0]),['Culvert in list',r=>{const c=cvFor(r);return c?c.name:'NOT IN LIST'}],
     ...FIELDS.slice(1).flatMap(f=>f.k==='location'?[['Latitude',r=>{const L=parseLoc(r.v.location);return L?L.lat:''}],['Longitude',r=>{const L=parseLoc(r.v.location);return L?L.lng:''}]]:[col(f)]),
-    ['GPS accuracy (m)',r=>r.v.location_acc||''],['Issue count',r=>issues(r.v).length],['Record ID',r=>r.id],['Saved',r=>r.saved],['Last updated',r=>r.updated]];
+    ['GPS accuracy (m)',r=>r.v.location_acc||''],['Issue count',r=>issues(r.v).length],
+    ['Status',r=>r.s.complete?'Complete':'Incomplete'],['Still needed',r=>r.s.missing.map(f=>f.l).join('; ')],
+    ['Answers differ (newest used)',r=>r.s.conflicts.map(c=>`${c.label}: ${c.options.map(o=>`${o.val} (${o.who})`).join(' / ')}`).join('; ')],
+    ['Visits',r=>r.s.field.map(x=>`${x.v.inspector||x.by} ${fmtDate(x.v.date)} ${x.v.time||''}`.trim()).join('; ')],
+    ['Sighting ID',r=>r.id],['Last updated',r=>r.updated]];
   const q=s=>{s=String(s??'');return /[",\n\r]/.test(s)?`"${s.replace(/"/g,'""')}"`:s};
-  return '﻿'+[cols.map(c=>q(c[0])).join(','),...records.map(r=>cols.map(c=>q(c[1](r))).join(','))].join('\r\n');
+  return '﻿'+[cols.map(c=>q(c[0])).join(','),...sightingsLocal().map(r=>cols.map(c=>q(c[1](r))).join(','))].join('\r\n');
 }
 const stampName=()=>{const n=nowParts();return n.date.replace(/-/g,'')+'-'+n.time.replace(':','')};
 function download(name,text,type){
@@ -435,7 +575,7 @@ async function stampPhoto(blob,r,f){
     return await new Promise((res,rej)=>c.toBlob(b=>b?res(b):rej(),'image/jpeg',0.85));
   }catch(e){return blob}
 }
-async function photoFiles(){const out=[];for(const r of records)for(const f of PHOTOS){const pid=r.v[f.k];if(!pid)continue;const b=await getPhoto(pid);if(b)out.push({name:photoName(r,f),blob:await stampPhoto(b,r,f)})}return out}
+async function photoFiles(){const out=[];for(const r of sightingsLocal())for(const f of PHOTOS){const pid=r.v[f.k];if(!pid)continue;const b=await getPhoto(pid);if(b)out.push({name:photoName(r,f),blob:await stampPhoto(b,r,f)})}return out}
 async function buildZip(){
   const n=stampName(),enc=new TextEncoder(),files=[{name:`fish-passage-inspections-${n}.csv`,data:enc.encode(csv())}];
   for(const p of await photoFiles())files.push({name:'photos/'+p.name,data:new Uint8Array(await p.blob.arrayBuffer())});
@@ -479,20 +619,22 @@ const REP={off:new Set()}; // culverts the user has unticked
 function repRange(){return{from:$('repFrom').value,to:$('repTo').value}}
 function repInRange(r){const{from,to}=repRange(),d=r.v.date||'';return(!from||d>=from)&&(!to||d<=to)}
 function repSelected(){
-  return records.filter(r=>repInRange(r)&&!REP.off.has(r.v.culvert_no))
+  return sightingsLocal().filter(r=>repInRange(r)&&!REP.off.has(r.v.culvert_no))
     .sort((a,b)=>((a.v.date||'')+(a.v.time||'')).localeCompare((b.v.date||'')+(b.v.time||''))||String(a.v.culvert_no).localeCompare(String(b.v.culvert_no)));
 }
 function renderReport(){
   const box=$('repCulverts');if(!box)return;
-  $('repCard').hidden=!records.length;
-  if(!REP.userRange&&records.length){ // default: span of all saved inspections
-    const ds=records.map(r=>r.v.date).filter(Boolean).sort();$('repFrom').value=ds[0]||'';$('repTo').value=ds[ds.length-1]||'';
+  const SL=sightingsLocal();
+  $('repCard').hidden=!SL.length;
+  if(!REP.userRange&&SL.length){ // default: span of all saved sightings
+    const ds=SL.map(r=>r.v.date).filter(Boolean).sort();$('repFrom').value=ds[0]||'';$('repTo').value=ds[ds.length-1]||'';
   }
-  const counts={};records.filter(repInRange).forEach(r=>{counts[r.v.culvert_no]=(counts[r.v.culvert_no]||0)+1});
+  const counts={};SL.filter(repInRange).forEach(r=>{counts[r.v.culvert_no]=(counts[r.v.culvert_no]||0)+1});
   const names=Object.keys(counts).sort((a,b)=>a.localeCompare(b,undefined,{numeric:true}));
   box.innerHTML=names.length?names.map(n=>`<label class="check"><input type="checkbox" data-c="${esc(n)}" ${REP.off.has(n)?'':'checked'}><span>${esc(n)}</span><small>${counts[n]}</small></label>`).join('')
     :'<p class="fieldnote">No inspections in these dates.</p>';
-  const n=repSelected().length;$('repCount').textContent=`${n} inspection${n===1?'':'s'} will be included.`;
+  const sel=repSelected(),n=sel.length,inc=sel.filter(r=>!r.s.complete).length,ids=new Set(records.map(r=>r.id)),cloudOnly=CLOUDIDX.filter(c=>!ids.has(c.id)).length;
+  $('repCount').textContent=`${n} sighting${n===1?'':'s'} will be included${inc?` (${inc} incomplete, marked as such)`:''}.`+(cloudOnly?` ${cloudOnly} visit${cloudOnly>1?'s are':' is'} only in the cloud: tap "Get everyone's inspections" first to include ${cloudOnly>1?'them':'it'}.`:'');
   $('repPdf').disabled=$('repShare').disabled=!n;
 }
 ['repFrom','repTo'].forEach(id=>$(id).addEventListener('change',()=>{REP.userRange=true;renderReport()}));
@@ -572,7 +714,7 @@ async function buildReport(){
   const pair=(r,a,b,la,lb)=>`${la}: ${v(r,a)||'–'}    ${lb}: ${v(r,b)||'–'}`;
   const period=()=>{const ds=recs.map(r=>r.v.date).filter(Boolean).sort();return ds.length?(ds[0]===ds[ds.length-1]?fmtDate(ds[0]):`${fmtDate(ds[0])} to ${fmtDate(ds[ds.length-1])}`):''};
   const culverts=[...new Set(recs.map(r=>r.v.culvert_no))];
-  const inspectors=[...new Set(recs.map(r=>(r.v.inspector||'').trim()).filter(Boolean))];
+  const inspectors=[...new Set(recs.flatMap(r=>r.s.field.map(x=>(x.v.inspector||x.by||'').trim())).filter(Boolean))];
   const pageOwner={}; // page number -> culvert no. (for the footer)
 
   /* Cover */
@@ -582,15 +724,16 @@ async function buildReport(){
     ['Project:','Waka Kotahi NZ Transport Agency – Transmission Gully Project'],
     ['Prepared by:','ATS Environmental'],
     ['Inspection period:',period()],
-    ['Culverts inspected:',`${culverts.length} culvert${culverts.length===1?'':'s'}, ${recs.length} inspection${recs.length===1?'':'s'}`],
+    ['Culverts inspected:',`${culverts.length} culvert${culverts.length===1?'':'s'}, ${recs.length} sighting${recs.length===1?'':'s'} (${recs.reduce((a,r)=>a+r.s.field.length,0)} visits)${recs.some(r=>!r.s.complete)?`, ${recs.filter(r=>!r.s.complete).length} incomplete`:''}`],
     ['Inspectors:',inspectors.join(', ')],
     ['Report date:',fmtDate(nowParts().date)],
     ['Assessment basis:','Assessment of fish passage against WS.7']],62);
 
   /* Summary */
   newPage();heading('Summary of Inspections');
-  gridTable([['Culvert No.',30],['Date',22],['Inspector',34],['Passage to impeded',22],['Passage through impeded',24],['Remedial works required',22],['Issues found',CW-154]],
-    recs.map(r=>{const n=issues(r.v).length;return[r.v.culvert_no,fmtDate(r.v.date),r.v.inspector,v(r,'impeded_to'),v(r,'impeded_through'),v(r,'remedial'),n?`${n}`:'None']}));
+  gridTable([['Culvert No.',28],['Date(s)',26],['Inspector(s)',30],['Passage to impeded',20],['Passage through impeded',22],['Remedial works required',20],['Status / issues',CW-146]],
+    recs.map(r=>{const n=issues(r.v).length,d=r.s.dates.map(dShort);return[r.v.culvert_no,d.length>1?`${d[0]}–${d[d.length-1]}`:fmtDate(r.v.date),r.v.inspector,v(r,'impeded_to')||'–',v(r,'impeded_through')||'–',v(r,'remedial')||'–',
+      (r.s.complete?'Complete':`INCOMPLETE (${r.s.missing.length} needed)`)+(n?` · ${n} issue${n>1?'s':''}`:'')+(r.s.conflicts.length?` · answers differ`:'')]}));
 
   /* One Appendix C form per inspection */
   for(const r of recs){
@@ -605,7 +748,9 @@ async function buildReport(){
         return[['Culvert Type:',type],['Culvert diameter:',dia],['Culvert length:',c.length?c.length+' m':'']]})()],CW*0.5);
     kvTable('Inspection Details',[
       ['Name of inspector:',r.v.inspector],['Organisation:','ATS Environmental'],
-      ['Inspection Date:',fmtDate(r.v.date)],['Inspection Time:',r.v.time],
+      ['Inspection Date:',r.s.dates.map(fmtDate).join(', ')||fmtDate(r.v.date)],
+      ['Inspection Time:',r.s.field.length>1?r.s.field.map(x=>`${x.v.time||'–'} (${dShort(x.v.date)}, ${x.v.inspector||x.by||''})`).join('; '):r.v.time],
+      ['Status:',r.s.complete?'Complete':`INCOMPLETE – still needed: ${r.s.missing.map(f=>f.l.replace(/\?$/,'')).join(', ')}`,!r.s.complete],
       ['Weather Conditions at the time of inspection:',r.v.weather],['Rainfall volume in previous 24 hours:','']],CW*0.5);
     heading('Consent Compliance – Outcome of Inspection');
     kvTable('Assessment of fish passage against WS.7',[
@@ -638,6 +783,11 @@ async function buildReport(){
     gridTable([['Photo No.',16],['Description',40],['Direction Facing',22],['Filename / Link',CW-78]],
       PHOTOS.map(f=>[String(f.n),f.l,FACING[f.k],r.v[f.k]?photoName(r,f):'']));
     heading('Additional Notes');
+    {const extra=[];
+      if(r.s.field.length>1)extra.push('This sighting combines '+r.s.field.length+' visits: '+r.s.field.map(x=>`${x.v.inspector||x.by||'?'} on ${fmtDate(x.v.date)} ${x.v.time||''}`.trim()).join('; ')+'. The newest answer to each question is used.');
+      r.s.items.filter(x=>x.v.office_fix).forEach(x=>extra.push(`Office choice by ${x.v.inspector||'office'}: `+Object.keys(x.v).filter(k=>!['culvert_no','culvert_ref','date','time','inspector','office_fix'].includes(k)).map(k=>`${(FIELDS.find(f=>f.k===k)||{l:k}).l} = ${x.v[k]}`).join(', ')));
+      r.s.conflicts.forEach(c=>extra.push(`Answers differ for "${c.label}" (newest used: ${c.used}): `+c.options.map(o=>`${o.val} (${o.who})`).join(', ')));
+      if(extra.length){font(FS);col(RED);for(const t of extra){const L=lines(t,CW);need(L.length*LH+2);doc.text(L,M,y+3);y+=L.length*LH+2}y+=2}}
     font(FS);col(INK);const note=lines(v(r,'final_comments')||'(Record any other relevant comments, environmental observations, or coordination notes.)',CW);
     need(note.length*LH+4);if(!v(r,'final_comments'))col(MUT);doc.text(note,M,y+3);y+=note.length*LH+6;
     // photographs, 2x2
@@ -727,7 +877,7 @@ async function syncNow(manual){
   if(!FB_READY){if(manual)toast('Cloud not set up yet (firebase-config.js)');return}
   if(!auth||!fbAuth.currentUser){if(manual)showLogin();return}
   if(!navigator.onLine){if(manual)toast('No connection right now');syncUI();return}
-  if(!SY.busy){fetchCulverts();await fetchDeleted()} // pick up list changes and "delete everywhere" first
+  if(!SY.busy){fetchCulverts();await fetchDeleted();fetchCloudIndex()} // pick up list changes, "delete everywhere" and everyone's answers first
   if(!pending().length){if(manual)toast('Everything is uploaded');SY.lastOk=Date.now();store('fpi.lastsync.v1',SY.lastOk);syncUI();return}
   SY.busy=true;SY.msg='';syncUI();
   const find=id=>records.find(x=>x.id===id),email=fbAuth.currentUser.email;
@@ -754,6 +904,7 @@ async function syncNow(manual){
       renderList();
     }
     SY.fails=0;SY.nextTry=0;SY.lastOk=Date.now();store('fpi.lastsync.v1',SY.lastOk);
+    fetchCloudIndex();
     if(manual)toast('All inspections uploaded');
   }catch(e){
     SY.fails++;SY.nextTry=Date.now()+Math.min(10*60e3,30e3*2**(SY.fails-1));
@@ -840,7 +991,7 @@ $('cloudPull').onclick=async()=>{
 };
 if(fbAuth)fbAuth.onAuthStateChanged(u=>{ // Firebase remembers the sign-in on this phone, even offline
   if(!u&&auth&&navigator.onLine){auth=null;try{localStorage.removeItem('fpi.auth.v1')}catch(e){}}
-  syncUI();if(u){fetchDeleted().then(autoSync);fetchCulverts()}
+  syncUI();if(u){fetchDeleted().then(autoSync);fetchCulverts();fetchCloudIndex()}
 });
 window.addEventListener('online',()=>{syncUI();autoSync()});
 window.addEventListener('offline',syncUI);
